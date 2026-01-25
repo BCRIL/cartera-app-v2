@@ -23,6 +23,7 @@ st.markdown("""
     .stMetric {text-align: center;}
     div[data-testid="stMetricLabel"] > div > div {cursor: help;}
     div[role="tablist"] {justify-content: center;}
+    .big-font {font-size:24px !important; font-weight: bold; color: #2E7D32;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -143,29 +144,38 @@ def update_asset_db(asset_id, shares, avg_price):
 def delete_asset_db(id_del):
     supabase.table('assets').delete().eq('id', id_del).execute()
 
-# --- FUNCIONES BASE DE DATOS (LIQUIDEZ) ---
+# --- FUNCIONES BASE DE DATOS (LIQUIDEZ SIMPLIFICADA) ---
 def get_liquidity_db():
+    """Obtiene la liquidez. Si no existe, crea una entrada 'Principal' a 0"""
     try:
         response = supabase.table('liquidity').select("*").eq('user_id', user.id).execute()
         data = response.data
-        if data: return pd.DataFrame(data)
-        else: return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'created_at'])
-    except:
+        if data:
+            return pd.DataFrame(data)
+        else:
+            # Autocrear cartera de liquidez si no existe
+            new_data = {"user_id": user.id, "name": "Principal", "amount": 0.0}
+            supabase.table('liquidity').insert(new_data).execute()
+            # Retornar el dataframe con la fila creada
+            return pd.DataFrame([new_data]) 
+    except Exception as e:
         return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'created_at'])
-
-def add_liquidity_entry(name, amount):
-    # Ya no guardamos yield (rentabilidad) porque no se quiere
-    supabase.table('liquidity').insert({"user_id": user.id, "name": name, "amount": amount}).execute()
 
 def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
 
-def delete_liquidity_db(id_del):
-    supabase.table('liquidity').delete().eq('id', id_del).execute()
-
 # --- CARGA Y PROCESAMIENTO DE DATOS ---
 df_assets = get_assets_db()
 df_cash = get_liquidity_db()
+
+# Procesar Liquidez Única
+if not df_cash.empty:
+    cash_row = df_cash.iloc[0] # Siempre usamos la primera fila como "La Liquidez"
+    total_liquidez = cash_row['amount']
+    cash_id = cash_row.get('id', None) # ID para updates
+else:
+    total_liquidez = 0.0
+    cash_id = None
 
 # Procesar Inversiones
 df_final = pd.DataFrame()
@@ -220,7 +230,6 @@ if not df_assets.empty:
 
 # Totales Globales
 total_inversiones = df_final['Valor Acciones'].sum() if not df_final.empty else 0
-total_liquidez = df_cash['amount'].sum() if not df_cash.empty else 0
 patrimonio_total = total_inversiones + total_liquidez
 
 # ==============================================================================
@@ -278,85 +287,52 @@ if pagina == "📊 Dashboard & Alpha":
         st.plotly_chart(fig_alloc, use_container_width=True)
 
 # ==============================================================================
-# 💰 PÁGINA 2: LIQUIDEZ (SIMPLIFICADA)
+# 💰 PÁGINA 2: LIQUIDEZ (SIMPLIFICADA MÁXIMA)
 # ==============================================================================
 elif pagina == "💰 Liquidez (Cash)":
-    st.title("💰 Gestión de Liquidez")
+    st.title("💰 Mi Liquidez")
     
-    # Header Limpio
+    # 1. MOSTRAR SALDO GIGANTE
     st.markdown(f"""
-    <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left: 5px solid #1565c0;">
-        <p style="margin:0; color:#555;">Liquidez Total Disponible</p>
-        <h1 style="margin:0; color:#1565c0;">{total_liquidez:,.2f} €</h1>
+    <div style="text-align:center; padding: 40px; background-color: #e8f5e9; border-radius: 15px; margin-bottom: 30px;">
+        <h3 style="color:#2e7d32; margin:0;">Saldo Total Disponible</h3>
+        <h1 style="font-size: 60px; color:#1b5e20; margin:0;">{total_liquidez:,.2f} €</h1>
     </div>
     """, unsafe_allow_html=True)
-    st.write("")
 
-    tab_ops, tab_new, tab_viz = st.tabs(["💸 Mover Dinero", "🏦 Nueva Cuenta", "📊 Distribución"])
+    # 2. BOTONES DE ACCIÓN RÁPIDA
+    c_in, c_out = st.columns(2)
     
-    # --- MOVER DINERO ---
-    with tab_ops:
-        if df_cash.empty:
-            st.info("Primero crea una cuenta en la pestaña 'Nueva Cuenta'.")
-        else:
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                st.subheader("Cuenta")
-                w_sel = st.selectbox("Seleccionar Cuenta:", df_cash['name'].unique())
-                w_row = df_cash[df_cash['name'] == w_sel].iloc[0]
-                st.metric(f"Saldo Actual", f"{w_row['amount']:,.2f} €")
-            
-            with c2:
-                st.subheader("Operación")
-                action = st.radio("Acción", ["📥 Ingresar (Aportar)", "📤 Retirar (Gastar)"], horizontal=True)
-                amt = st.number_input("Cantidad (€)", min_value=0.0, step=50.0, key="liq_op")
-                
-                if st.button("Confirmar Movimiento", type="primary"):
-                    if amt > 0:
-                        if "Ingresar" in action:
-                            update_liquidity_balance(int(w_row['id']), w_row['amount'] + amt)
-                            st.success(f"Ingresados {amt}€ en {w_sel}")
-                            time.sleep(1); st.rerun()
-                        else:
-                            if amt > w_row['amount']: st.error("Fondos insuficientes.")
-                            else:
-                                update_liquidity_balance(int(w_row['id']), w_row['amount'] - amt)
-                                st.success(f"Retirados {amt}€ de {w_sel}")
-                                time.sleep(1); st.rerun()
+    with c_in:
+        with st.expander("📥 AÑADIR DINERO (Ingreso)", expanded=True):
+            add_amt = st.number_input("Cantidad a ingresar (€)", min_value=0.0, step=50.0, key="add_cash")
+            if st.button("Confirmar Ingreso", type="primary", use_container_width=True):
+                if add_amt > 0:
+                    # Usamos el cash_id detectado al inicio (si no hay, get_liquidity_db lo creó)
+                    # Forzamos recarga del ID por seguridad
+                    current_db = get_liquidity_db()
+                    cid = current_db.iloc[0]['id']
+                    cbal = current_db.iloc[0]['amount']
+                    
+                    update_liquidity_balance(int(cid), cbal + add_amt)
+                    st.success(f"Has añadido {add_amt} €")
+                    time.sleep(1); st.rerun()
 
-    # --- NUEVA CUENTA ---
-    with tab_new:
-        c1, c2 = st.columns(2)
-        with c1:
-            new_name = st.text_input("Nombre de la cuenta (Ej: Banco X, Colchón...)", placeholder="Nombre...")
-        with c2:
-            new_bal = st.number_input("Saldo Inicial (€)", min_value=0.0, step=100.0)
-        
-        if st.button("Crear Cuenta"):
-            if new_name:
-                add_liquidity_entry(new_name, new_bal)
-                st.success("Cuenta creada."); time.sleep(1); st.rerun()
-            else: st.error("Falta el nombre.")
-
-    # --- VIZ ---
-    with tab_viz:
-        if not df_cash.empty:
-            fig = px.pie(df_cash, values='amount', names='name', hole=0.6, title="Distribución de Efectivo")
-            st.plotly_chart(fig, use_container_width=True)
-        else: st.info("Sin datos.")
-
-    st.divider()
-    st.subheader("📋 Mis Cuentas")
-    if not df_cash.empty:
-        for i, row in df_cash.iterrows():
-            with st.container():
-                c1, c2, c3 = st.columns([3, 2, 1])
-                c1.write(f"**{row['name']}**")
-                c2.write(f"{row['amount']:,.2f} €")
-                if c3.button("🗑️", key=f"del_{row['id']}"):
-                    delete_liquidity_db(row['id'])
-                    st.rerun()
-                st.markdown("---")
+    with c_out:
+        with st.expander("📤 RETIRAR DINERO (Gasto)", expanded=True):
+            sub_amt = st.number_input("Cantidad a retirar (€)", min_value=0.0, step=50.0, key="sub_cash")
+            if st.button("Confirmar Retirada", type="secondary", use_container_width=True):
+                if sub_amt > 0:
+                    current_db = get_liquidity_db()
+                    cid = current_db.iloc[0]['id']
+                    cbal = current_db.iloc[0]['amount']
+                    
+                    if sub_amt > cbal:
+                        st.error("No tienes suficiente saldo.")
+                    else:
+                        update_liquidity_balance(int(cid), cbal - sub_amt)
+                        st.success(f"Has retirado {sub_amt} €")
+                        time.sleep(1); st.rerun()
 
 # ==============================================================================
 # ➕ PÁGINA 3: GESTIÓN DE INVERSIONES (CONECTADA A LIQUIDEZ)
@@ -368,7 +344,7 @@ elif pagina == "➕ Gestión de Inversiones":
     
     # --- TAB 1: AÑADIR (Solo registro inicial, no resta liquidez) ---
     with t_new:
-        st.caption("Usa esto para registrar activos que YA tienes. No afectará a tu liquidez.")
+        st.caption("Usa esto para registrar activos que YA tienes de antes. No afectará a tu liquidez.")
         c1, c2 = st.columns(2)
         with c1:
             q = st.text_input("Buscar:", placeholder="ISIN o Nombre...")
@@ -389,8 +365,8 @@ elif pagina == "➕ Gestión de Inversiones":
                         cp = inf['Close'].iloc[-1]
                         st.metric("Precio", f"{cp:.2f} €")
                         with st.form("new"):
-                            inv = st.number_input("Invertido (€)", min_value=0.0)
-                            val = st.number_input("Valor (€)", min_value=0.0)
+                            inv = st.number_input("Invertido Total (€)", min_value=0.0)
+                            val = st.number_input("Valor Actual Total (€)", min_value=0.0)
                             pl = st.selectbox("Broker", ["MyInvestor", "XTB", "TR", "Degiro"])
                             if st.form_submit_button("Guardar Registro") and val > 0:
                                 shares = val / cp
@@ -418,57 +394,43 @@ elif pagina == "➕ Gestión de Inversiones":
                 op = st.radio("Acción", ["🟢 Compra", "🔴 Venta"], horizontal=True)
                 amt = st.number_input("Importe Operación (€)", 0.0, step=50.0)
                 
-                # Selector de Liquidez
-                use_cash = st.checkbox("Usar/Afectar Liquidez", value=True)
-                if use_cash and not df_cash.empty:
-                    wallet_sel = st.selectbox("Bolsa de Liquidez", df_cash['name'].unique())
-                    wallet_row = df_cash[df_cash['name'] == wallet_sel].iloc[0]
-                    current_cash = wallet_row['amount']
-                    st.caption(f"Saldo disponible en {wallet_sel}: **{current_cash:,.2f} €**")
-                elif use_cash and df_cash.empty:
-                    st.warning("⚠️ No tienes liquidez creada. Ve a la página de Liquidez.")
-                    use_cash = False
-
+                # Checkbox de liquidez siempre activo y visible
+                st.markdown(f"**Saldo Liquidez:** {total_liquidez:,.2f} €")
+                
                 if amt > 0:
                     sh_imp = amt / live_price
                     
                     if "Compra" in op:
-                        # VALIDACIÓN DE FONDOS
-                        can_buy = True
-                        if use_cash:
-                            if amt > current_cash:
-                                st.error("❌ Fondos insuficientes en la bolsa de liquidez seleccionada.")
-                                can_buy = False
-                        
-                        if can_buy:
-                            new_sh = cur_shares + sh_imp
-                            new_avg = ((cur_shares*cur_avg)+amt)/new_sh
-                            st.success(f"Comprarás {sh_imp:.4f} accs. Nuevo Precio Medio: {new_avg:.2f}€")
-                            
+                        if amt > total_liquidez:
+                            st.error("❌ No tienes suficiente liquidez para esta compra.")
+                        else:
+                            st.success(f"Comprarás {sh_imp:.4f} accs. Se restarán {amt}€ de liquidez.")
                             if st.button("✅ Confirmar Compra"):
                                 # 1. Actualizar Activo
+                                new_sh = cur_shares + sh_imp
+                                new_avg = ((cur_shares*cur_avg)+amt)/new_sh
                                 update_asset_db(int(row['id']), new_sh, new_avg)
-                                # 2. Restar Liquidez
-                                if use_cash:
-                                    update_liquidity_balance(int(wallet_row['id']), current_cash - amt)
-                                    st.toast(f"Restados {amt}€ de {wallet_sel}")
+                                
+                                # 2. Restar Liquidez (Usamos el cash_id global)
+                                if cash_id:
+                                    update_liquidity_balance(int(cash_id), total_liquidez - amt)
+                                    st.toast(f"Restados {amt}€ de liquidez")
                                 st.success("Compra realizada."); time.sleep(1.5); st.rerun()
                                 
                     else: # VENTA
                         if amt > (cur_shares * live_price): st.error("No tienes tantas acciones.")
                         else:
-                            new_sh = cur_shares - sh_imp
-                            st.warning(f"Venderás {sh_imp:.4f} acciones. Recibirás {amt:.2f}€.")
-                            
+                            st.warning(f"Venderás {sh_imp:.4f} acciones. Se añadirán {amt}€ a liquidez.")
                             if st.button("🚨 Confirmar Venta"):
                                 # 1. Actualizar Activo
+                                new_sh = cur_shares - sh_imp
                                 if new_sh <= 0.001: delete_asset_db(int(row['id']))
                                 else: update_asset_db(int(row['id']), new_sh, cur_avg)
                                 
                                 # 2. Sumar Liquidez
-                                if use_cash:
-                                    update_liquidity_balance(int(wallet_row['id']), current_cash + amt)
-                                    st.toast(f"Añadidos {amt}€ a {wallet_sel}")
+                                if cash_id:
+                                    update_liquidity_balance(int(cash_id), total_liquidez + amt)
+                                    st.toast(f"Añadidos {amt}€ a liquidez")
                                 st.success("Venta realizada."); time.sleep(1.5); st.rerun()
 
     with t_edit:
