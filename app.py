@@ -644,48 +644,52 @@ with col_main:
                 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- BOT DE NOTICIAS DERECHA (ESTILO TWITCH FIXED) ---
+# --- BOT DE NOTICIAS DERECHA (CORREGIDO) ---
 if st.session_state['show_news']:
     with col_news:
-        # 1. CABECERA FIJA (TÍTULO Y BOTÓN)
-        c_head, c_btn = st.columns([3, 1])
-        with c_head:
+        # 1. HEADER FIJO
+        c_h1, c_h2 = st.columns([3, 1])
+        with c_h1: 
             st.markdown("<h3 style='margin:0; padding:0;'>🤖 Bot News</h3>", unsafe_allow_html=True)
-        with c_btn:
-            if st.button("🔄", help="Actualizar ahora", use_container_width=True):
+        with c_h2: 
+            if st.button("🔄", help="Actualizar", key="refresh_btn"):
                 st.cache_data.clear()
                 st.rerun()
         
-        # 2. FILTROS (FIJOS)
+        # 2. FILTROS
         tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
-        sel_tf = st.pills("📅 Filtro:", list(tf_map.keys()), default="Hoy", label_visibility="collapsed")
+        sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy", label_visibility="collapsed")
         time_code = tf_map[sel_tf]
         
-        # 3. CONTENIDO CON SCROLL
+        # 3. NOTICIAS (SIN INDENTACIÓN EN EL HTML)
         news_feed = get_global_news(my_tickers, time_code)
         
         html_content = ""
         if news_feed:
             for n in news_feed:
-                img_tag = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
+                # Lógica de imagen
+                img_tag = ""
+                if n.get('image'):
+                    img_tag = f"<img src='{n['image']}' class='news-img'/>"
+                
+                # IMPORTANTE: El HTML debe estar pegado a la izquierda sin espacios extra
+                # para que Markdown no crea que es código.
                 html_content += f"""
-                <div class="news-card">
-                    {img_tag}
-                    <div class="news-source">{n.get('source', 'Internet')} • {n.get('date', '')}</div>
-                    <div class="news-title">
-                        <a href="{n.get('url', '#')}" target="_blank">{n.get('title', 'Sin título')}</a>
-                    </div>
-                </div>
-                """
+<div class="news-card">
+    {img_tag}
+    <div class="news-source">{n.get('source', 'Internet')} • {n.get('date', '')}</div>
+    <div class="news-title">
+        <a href="{n.get('url', '#')}" target="_blank">{n.get('title', 'Sin título')}</a>
+    </div>
+</div>"""
         else:
             html_content = """
             <div style='color:#888; text-align:center; padding:40px;'>
                 <div style='font-size: 40px;'>💤</div>
-                <p>No hay noticias recientes con este filtro.</p>
-                <small>Intenta cambiar a 'Semana' o dale a 🔄</small>
-            </div>
-            """
+                <p>No hay noticias recientes.</p>
+            </div>"""
 
+        # 4. RENDERIZAR
         st.markdown(f"""
         <div class='news-scroll-area'>
             {html_content}
