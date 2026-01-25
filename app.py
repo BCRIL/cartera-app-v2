@@ -18,14 +18,14 @@ from duckduckgo_search import DDGS
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🌑 DISEÑO DARK MODE (CSS)
+# 🌑 DISEÑO DARK MODE (CSS PROFESIONAL)
 # ==============================================================================
 st.markdown("""
 <style>
     /* IMPORTAR FUENTE */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
-    /* FONDO GENERAL OSCURO */
+    /* GENERAL */
     .stApp {
         background-color: #0E1117;
         color: #FAFAFA;
@@ -44,15 +44,15 @@ st.markdown("""
 
     /* TARJETAS DE MÉTRICAS */
     div[data-testid="stMetric"] {
-        background-color: #262730;
-        border: 1px solid #41444C;
+        background-color: #21262D;
+        border: 1px solid #30363D;
         border-radius: 10px;
         padding: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
     }
     div[data-testid="stMetricLabel"] p {
         font-size: 0.9rem !important;
-        color: #9CA3AF !important;
+        color: #8B949E !important;
     }
     div[data-testid="stMetricValue"] div {
         font-size: 1.8rem !important;
@@ -60,12 +60,7 @@ st.markdown("""
         font-weight: 700;
     }
 
-    /* INPUTS Y BOTONES */
-    .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div {
-        background-color: #0E1117;
-        color: white;
-        border: 1px solid #30363D;
-    }
+    /* BOTONES */
     .stButton > button {
         border-radius: 8px;
         font-weight: 600;
@@ -80,35 +75,25 @@ st.markdown("""
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%);
         border: none;
-        color: black;
+        color: black !important;
+    }
+    .stButton > button[kind="primary"] p {
+        color: black !important;
     }
 
-    /* PESTAÑAS */
-    .stTabs [data-baseweb="tab"] {
-        background-color: #161B22;
-        border-radius: 6px;
-        border: 1px solid #30363D;
-        padding: 8px 16px;
-        color: #8B949E;
-    }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #00CC96;
-        color: #000000 !important;
-        font-weight: bold;
-    }
-
-/* --- CHAT DE NOTICIAS (CORREGIDO) --- */
+    /* --- CHAT DE NOTICIAS (DERECHA) --- */
+    /* Contenedor con Scroll Independiente */
     .news-scroll-area {
-        height: 65vh; /* Altura ajustada para dejar hueco a los filtros de arriba */
-        overflow-y: auto;
+        height: 70vh; /* Altura fija */
+        overflow-y: auto; /* Scroll vertical */
         padding: 15px;
         background-color: #161B22;
         border: 1px solid #30363D;
         border-radius: 12px;
-        margin-top: 15px; /* Separación con los filtros */
+        margin-top: 15px;
     }
     
-    /* Scrollbar */
+    /* Scrollbar Personalizado */
     .news-scroll-area::-webkit-scrollbar { width: 8px; }
     .news-scroll-area::-webkit-scrollbar-track { background: #0E1117; border-radius: 4px;}
     .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
@@ -156,7 +141,7 @@ st.markdown("""
         color: #00CC96 !important;
     }
     
-    /* Gráficos */
+    /* Gráficos Plotly Transparentes */
     .js-plotly-plot .plotly .main-svg {
         background-color: rgba(0,0,0,0) !important;
     }
@@ -237,7 +222,7 @@ user = st.session_state['user']
 with st.sidebar:
     avatar_url = user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png')
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 10px; background: #21262D; border-radius: 10px;">
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 10px; background: #21262D; border-radius: 10px; border: 1px solid #30363D;">
         <img src="{avatar_url}" style="width: 40px; height: 40px; border-radius: 50%; border: 2px solid #00CC96;">
         <div>
             <h3 style="margin: 0; font-size: 0.9rem; color: white !important;">{user.user_metadata.get('full_name', 'Inversor')}</h3>
@@ -291,7 +276,7 @@ def sanitize_input(text):
     if not isinstance(text, str): return ""
     return re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
 
-# --- CACHE ---
+# --- CACHE & DATOS ---
 @st.cache_data(ttl=60)
 def get_assets_db(uid):
     try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
@@ -325,7 +310,7 @@ def get_global_news(tickers, time_filter='d'):
     results = []
     if tickers:
         main_ticker = tickers[0]
-        queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado financiero"]
+        queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado valores economía"]
     else:
         queries_to_try = ["Noticias economía inversiones españa"]
     
@@ -663,7 +648,6 @@ with col_main:
 if st.session_state['show_news']:
     with col_news:
         # 1. CABECERA FIJA (TÍTULO Y BOTÓN)
-        # Esto va fuera del scroll para que siempre sea visible
         c_head, c_btn = st.columns([3, 1])
         with c_head:
             st.markdown("<h3 style='margin:0; padding:0;'>🤖 Bot News</h3>", unsafe_allow_html=True)
@@ -673,24 +657,17 @@ if st.session_state['show_news']:
                 st.rerun()
         
         # 2. FILTROS (FIJOS)
-        # Usamos st.pills para filtrar
         tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
         sel_tf = st.pills("📅 Filtro:", list(tf_map.keys()), default="Hoy", label_visibility="collapsed")
         time_code = tf_map[sel_tf]
         
-        # 3. CONTENIDO CON SCROLL (EL RECTÁNGULO)
-        # Obtenemos los datos
+        # 3. CONTENIDO CON SCROLL
         news_feed = get_global_news(my_tickers, time_code)
         
-        # Generamos TODO el HTML de las noticias en una sola variable string
         html_content = ""
-        
         if news_feed:
             for n in news_feed:
-                # Lógica de imagen: Si hay, la pone, si no, nada
                 img_tag = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                
-                # Construimos la tarjeta en HTML puro
                 html_content += f"""
                 <div class="news-card">
                     {img_tag}
@@ -709,8 +686,6 @@ if st.session_state['show_news']:
             </div>
             """
 
-        # 4. RENDERIZADO FINAL
-        # Aquí es donde metemos todo el HTML generado DENTRO del div con scroll
         st.markdown(f"""
         <div class='news-scroll-area'>
             {html_content}
