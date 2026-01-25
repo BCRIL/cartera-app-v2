@@ -23,7 +23,6 @@ st.markdown("""
     .stMetric {text-align: center;}
     div[data-testid="stMetricLabel"] > div > div {cursor: help;}
     div[role="tablist"] {justify-content: center;}
-    .big-font {font-size:20px !important; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,6 +59,8 @@ if not st.session_state['user']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.title("🏦 Carterapro Ultra")
+        st.caption("Gestión Patrimonial Personal")
+        
         if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
             try:
                 data = supabase.auth.sign_in_with_oauth({
@@ -143,27 +144,20 @@ def delete_asset_db(id_del):
     supabase.table('assets').delete().eq('id', id_del).execute()
 
 # --- FUNCIONES BASE DE DATOS (LIQUIDEZ) ---
-# --- BUSCA ESTA FUNCIÓN Y SUSTITÚYELA ENTERA ---
 def get_liquidity_db():
     try:
         response = supabase.table('liquidity').select("*").eq('user_id', user.id).execute()
         data = response.data
-        
-        if data:
-            return pd.DataFrame(data)
-        else:
-            # SI ESTÁ VACÍA, DEVOLVEMOS UN DATAFRAME CON LAS COLUMNAS CORRECTAS PERO VACÍO
-            return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'yield', 'created_at'])
-    except Exception as e:
-        # En caso de error de conexión, también devolvemos estructura vacía segura
-        return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'yield', 'created_at'])
+        if data: return pd.DataFrame(data)
+        else: return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'created_at'])
+    except:
+        return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'created_at'])
 
 def add_liquidity_entry(name, amount):
-    # Crea una entrada de liquidez si no existe, o añade otra
-    supabase.table('liquidity').insert({"user_id": user.id, "name": name, "amount": amount, "yield": 0.0}).execute()
+    # Ya no guardamos yield (rentabilidad) porque no se quiere
+    supabase.table('liquidity').insert({"user_id": user.id, "name": name, "amount": amount}).execute()
 
 def update_liquidity_balance(liq_id, new_amount):
-    # Actualiza el saldo de una "bolsa" de liquidez específica
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
 
 def delete_liquidity_db(id_del):
@@ -289,67 +283,80 @@ if pagina == "📊 Dashboard & Alpha":
 elif pagina == "💰 Liquidez (Cash)":
     st.title("💰 Gestión de Liquidez")
     
-    # KPIs Rápidos
+    # Header Limpio
     st.markdown(f"""
-    <div style="background-color:#e3f2fd; padding:20px; border-radius:10px; text-align:center; border:1px solid #90caf9;">
-        <h2 style="margin:0; color:#1565c0;">{total_liquidez:,.2f} €</h2>
-        <p style="margin:0;">Liquidez Disponible Total</p>
+    <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left: 5px solid #1565c0;">
+        <p style="margin:0; color:#555;">Liquidez Total Disponible</p>
+        <h1 style="margin:0; color:#1565c0;">{total_liquidez:,.2f} €</h1>
     </div>
     """, unsafe_allow_html=True)
     st.write("")
 
-    col_mov, col_hist = st.columns([1, 2])
+    tab_ops, tab_new, tab_viz = st.tabs(["💸 Mover Dinero", "🏦 Nueva Cuenta", "📊 Distribución"])
     
-    with col_mov:
-        st.subheader("Movimientos de Caja")
-        mov_type = st.radio("Acción", ["📥 Ingresar (Añadir)", "📤 Retirar (Gastar)"], horizontal=True)
-        amount = st.number_input("Cantidad (€)", min_value=0.0, step=100.0, key="liq_amt")
-        
-        # Selección de "Bolsa" (Si tiene varias cuentas, si no crea 'Principal')
-        wallet_opts = df_cash['name'].unique() if not df_cash.empty else ['Principal']
-        wallet_sel = st.selectbox("Destino / Origen", wallet_opts)
-        
-        if st.button("Ejecutar Movimiento", type="primary"):
-            if amount > 0:
-                # Buscar si existe esa wallet
-                target_row = df_cash[df_cash['name'] == wallet_sel]
-                
-                if not target_row.empty:
-                    current_bal = target_row.iloc[0]['amount']
-                    liq_id = target_row.iloc[0]['id']
-                    
-                    if "Retirar" in mov_type:
-                        if amount > current_bal:
-                            st.error("No tienes suficiente saldo en esa bolsa.")
-                        else:
-                            update_liquidity_balance(int(liq_id), current_bal - amount)
-                            st.success(f"Retirados {amount}€ de {wallet_sel}")
-                            time.sleep(1); st.rerun()
-                    else: # Ingresar
-                        update_liquidity_balance(int(liq_id), current_bal + amount)
-                        st.success(f"Añadidos {amount}€ a {wallet_sel}")
-                        time.sleep(1); st.rerun()
-                else:
-                    # Crear nueva si no existe (solo al ingresar)
-                    if "Ingresar" in mov_type:
-                        add_liquidity_entry(wallet_sel, amount)
-                        st.success(f"Creada bolsa {wallet_sel} con {amount}€")
-                        time.sleep(1); st.rerun()
-                    else:
-                        st.error("No existe esa bolsa para retirar.")
-
-    with col_hist:
-        st.subheader("Mis Bolsas de Liquidez")
-        if not df_cash.empty:
-            for i, row in df_cash.iterrows():
-                with st.expander(f"💼 {row['name']}", expanded=True):
-                    c1, c2 = st.columns([3, 1])
-                    c1.metric("Saldo", f"{row['amount']:,.2f} €")
-                    if c2.button("Eliminar", key=f"del_l_{row['id']}"):
-                        delete_liquidity_db(row['id'])
-                        st.rerun()
+    # --- MOVER DINERO ---
+    with tab_ops:
+        if df_cash.empty:
+            st.info("Primero crea una cuenta en la pestaña 'Nueva Cuenta'.")
         else:
-            st.info("No tienes liquidez. Usa el panel izquierdo para ingresar dinero.")
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.subheader("Cuenta")
+                w_sel = st.selectbox("Seleccionar Cuenta:", df_cash['name'].unique())
+                w_row = df_cash[df_cash['name'] == w_sel].iloc[0]
+                st.metric(f"Saldo Actual", f"{w_row['amount']:,.2f} €")
+            
+            with c2:
+                st.subheader("Operación")
+                action = st.radio("Acción", ["📥 Ingresar (Aportar)", "📤 Retirar (Gastar)"], horizontal=True)
+                amt = st.number_input("Cantidad (€)", min_value=0.0, step=50.0, key="liq_op")
+                
+                if st.button("Confirmar Movimiento", type="primary"):
+                    if amt > 0:
+                        if "Ingresar" in action:
+                            update_liquidity_balance(int(w_row['id']), w_row['amount'] + amt)
+                            st.success(f"Ingresados {amt}€ en {w_sel}")
+                            time.sleep(1); st.rerun()
+                        else:
+                            if amt > w_row['amount']: st.error("Fondos insuficientes.")
+                            else:
+                                update_liquidity_balance(int(w_row['id']), w_row['amount'] - amt)
+                                st.success(f"Retirados {amt}€ de {w_sel}")
+                                time.sleep(1); st.rerun()
+
+    # --- NUEVA CUENTA ---
+    with tab_new:
+        c1, c2 = st.columns(2)
+        with c1:
+            new_name = st.text_input("Nombre de la cuenta (Ej: Banco X, Colchón...)", placeholder="Nombre...")
+        with c2:
+            new_bal = st.number_input("Saldo Inicial (€)", min_value=0.0, step=100.0)
+        
+        if st.button("Crear Cuenta"):
+            if new_name:
+                add_liquidity_entry(new_name, new_bal)
+                st.success("Cuenta creada."); time.sleep(1); st.rerun()
+            else: st.error("Falta el nombre.")
+
+    # --- VIZ ---
+    with tab_viz:
+        if not df_cash.empty:
+            fig = px.pie(df_cash, values='amount', names='name', hole=0.6, title="Distribución de Efectivo")
+            st.plotly_chart(fig, use_container_width=True)
+        else: st.info("Sin datos.")
+
+    st.divider()
+    st.subheader("📋 Mis Cuentas")
+    if not df_cash.empty:
+        for i, row in df_cash.iterrows():
+            with st.container():
+                c1, c2, c3 = st.columns([3, 2, 1])
+                c1.write(f"**{row['name']}**")
+                c2.write(f"{row['amount']:,.2f} €")
+                if c3.button("🗑️", key=f"del_{row['id']}"):
+                    delete_liquidity_db(row['id'])
+                    st.rerun()
+                st.markdown("---")
 
 # ==============================================================================
 # ➕ PÁGINA 3: GESTIÓN DE INVERSIONES (CONECTADA A LIQUIDEZ)
