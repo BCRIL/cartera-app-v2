@@ -13,6 +13,7 @@ from textblob import TextBlob
 from datetime import datetime, timedelta
 import re
 from duckduckgo_search import DDGS 
+import openai # Usamos la librería de OpenAI pero conectada a Groq
 
 # --- CONFIGURACIÓN GLOBAL ---
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
@@ -79,6 +80,17 @@ st.markdown("""
     }
     .stButton > button[kind="primary"] p {
         color: black !important;
+    }
+
+    /* CHAT IA (USER/ASSISTANT) */
+    .stChatMessage {
+        background-color: #21262D;
+        border: 1px solid #30363D;
+        border-radius: 10px;
+    }
+    .stChatMessage[data-testid="user"] {
+        background-color: #1F2937;
+        border-color: #374151;
     }
 
     /* --- CHAT DE NOTICIAS (DERECHA) --- */
@@ -148,10 +160,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONEXIÓN SUPABASE ---
+# --- CONEXIONES ---
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    # Comprobamos Groq (pero no detenemos la app si falta, solo el chat)
+    HAS_GROQ = "GROQ_API_KEY" in st.secrets
 except:
     st.error("❌ Error Crítico: Faltan los secretos de Supabase.")
     st.stop()
@@ -165,6 +179,7 @@ supabase = init_supabase()
 # --- SESIÓN ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'show_news' not in st.session_state: st.session_state['show_news'] = True
+if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
 # 🔄 LOGIN Y REGISTRO
@@ -244,7 +259,7 @@ with st.sidebar:
         "📊 Dashboard & Alpha", 
         "💰 Liquidez (Cash)",
         "➕ Gestión de Inversiones",
-        "🤖 Asesor de Riesgos", 
+        "💬 Asesor AI", 
         "🔮 Monte Carlo", 
         "⚖️ Rebalanceo"
     ])
@@ -262,21 +277,14 @@ def safe_metric_calc(series):
     except: total_ret = 0
     vol = returns.std() * np.sqrt(252)
     if np.isnan(vol): vol = 0
-    cum_ret = (1 + returns).cumprod()
-    peak = cum_ret.cummax()
-    dd = (cum_ret - peak) / peak
-    max_dd = dd.min()
-    if np.isnan(max_dd): max_dd = 0
-    rf = 0.03
-    mean_ret = returns.mean() * 252
-    sharpe = (mean_ret - rf) / vol if vol > 0.01 else 0
-    return total_ret, vol, max_dd, sharpe
+    sharpe = (returns.mean() * 252 - 0.03) / vol if vol > 0.01 else 0
+    return total_ret, vol, 0, sharpe
 
 def sanitize_input(text):
     if not isinstance(text, str): return ""
     return re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
 
-# --- CACHE & DATOS ---
+# --- CACHE ---
 @st.cache_data(ttl=60)
 def get_assets_db(uid):
     try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
@@ -573,6 +581,39 @@ with col_main:
                 if c3.button("Actualizar"): update_asset_db(int(re['id']), ns, na); st.rerun()
                 if st.button("Borrar"): delete_asset_db(int(re['id'])); st.rerun()
 
+    elif pagina == "💬 Asesor AI":
+        st.title("💬 Asesor Financiero Personal")
+        
+        # 1. Preparar Contexto
+        ctx = f"Liquidez: {total_liquidez:.2f}€. "
+        if not df_final.empty:
+            for idx, r in df_final.iterrows():
+                ctx += f"{r['Nombre']}: {r['Valor']:.2f}€ (P&L: {r['Ganancia']:.2f}€). "
+        
+        # 2. Historial
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+
+        # 3. Input
+        if prompt := st.chat_input("Pregúntame sobre tu cartera..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"): st.markdown(prompt)
+
+            if HAS_GROQ:
+                with st.chat_message("assistant"):
+                    try:
+                        client = openai.OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
+                        stream = client.chat.completions.create(
+                            model="llama3-70b-8192",
+                            messages=[{"role": "system", "content": f"Eres un asesor experto. Datos del usuario: {ctx}"}, *st.session_state.messages],
+                            stream=True
+                        )
+                        response = st.write_stream(stream)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                    except Exception as e: st.error(f"Error AI: {e}")
+            else:
+                st.warning("Configura GROQ_API_KEY en secrets.toml para usar el chat.")
+
     elif pagina == "🤖 Asesor de Riesgos":
         st.title("🤖 IA & Riesgos")
         if not df_final.empty and not history_data.empty:
@@ -644,7 +685,7 @@ with col_main:
                 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- BOT DE NOTICIAS DERECHA (CORREGIDO) ---
+# --- BOT DE NOTICIAS DERECHA (ESTILO TWITCH FIXED) ---
 if st.session_state['show_news']:
     with col_news:
         # 1. HEADER FIJO
@@ -672,8 +713,6 @@ if st.session_state['show_news']:
                 if n.get('image'):
                     img_tag = f"<img src='{n['image']}' class='news-img'/>"
                 
-                # IMPORTANTE: El HTML debe estar pegado a la izquierda sin espacios extra
-                # para que Markdown no crea que es código.
                 html_content += f"""
 <div class="news-card">
     {img_tag}
