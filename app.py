@@ -143,9 +143,20 @@ def delete_asset_db(id_del):
     supabase.table('assets').delete().eq('id', id_del).execute()
 
 # --- FUNCIONES BASE DE DATOS (LIQUIDEZ) ---
+# --- BUSCA ESTA FUNCIÓN Y SUSTITÚYELA ENTERA ---
 def get_liquidity_db():
-    try: return pd.DataFrame(supabase.table('liquidity').select("*").eq('user_id', user.id).execute().data)
-    except: return pd.DataFrame()
+    try:
+        response = supabase.table('liquidity').select("*").eq('user_id', user.id).execute()
+        data = response.data
+        
+        if data:
+            return pd.DataFrame(data)
+        else:
+            # SI ESTÁ VACÍA, DEVOLVEMOS UN DATAFRAME CON LAS COLUMNAS CORRECTAS PERO VACÍO
+            return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'yield', 'created_at'])
+    except Exception as e:
+        # En caso de error de conexión, también devolvemos estructura vacía segura
+        return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'yield', 'created_at'])
 
 def add_liquidity_entry(name, amount):
     # Crea una entrada de liquidez si no existe, o añade otra
