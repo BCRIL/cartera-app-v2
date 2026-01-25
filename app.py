@@ -80,7 +80,6 @@ with st.sidebar:
         st.session_state['user'] = None
         st.rerun()
     st.divider()
-    # MENÚ COMPLETO CON TODAS LAS FUNCIONES
     pagina = st.radio("Menú Principal", [
         "🤖 Asesor IA en Vivo", 
         "📊 Dashboard", 
@@ -153,7 +152,6 @@ if not df_db.empty:
                 volatility[t] = returns.std() * np.sqrt(252) * 100
                 yearly_return[t] = returns.mean() * 252 * 100
             else:
-                # Valores por defecto si falla la descarga
                 current_prices[t] = 0
                 rsi_values[t] = 50
                 volatility[t] = 0
@@ -179,7 +177,7 @@ if not df_db.empty:
     df_final = df_db.rename(columns={'nombre': 'Nombre'})
 
 # ==============================================================================
-# 🤖 PÁGINA 1: ASESOR IA EN VIVO (EL CEREBRO DE LA APP)
+# 🤖 PÁGINA 1: ASESOR IA EN VIVO (ACTUALIZADO CON HEDGING)
 # ==============================================================================
 if pagina == "🤖 Asesor IA en Vivo":
     st.title("🤖 Tu Asistente Financiero")
@@ -187,64 +185,104 @@ if pagina == "🤖 Asesor IA en Vivo":
     if df_final.empty:
         st.warning("Necesito datos para pensar. Ve a 'Añadir Activos' primero.")
     else:
-        # --- LÓGICA DEL ASISTENTE ---
+        # --- 1. LÓGICA INTERNA DE CARTERA ---
         alertas_graves = []
         consejos_compra = []
         consejos_venta = []
-        observaciones = []
+        estrategia_rotacion = []
 
-        # 1. Riesgo de Concentración (>35% en un activo)
+        # Concentración
         max_peso = df_final['Peso %'].max()
         if max_peso > 35:
             asset_max = df_final.loc[df_final['Peso %'].idxmax(), 'Nombre']
-            alertas_graves.append(f"⚠️ **Riesgo Alto:** Estás muy expuesto a **{asset_max}** ({max_peso:.1f}% de tu dinero). Si cae, sufres. Diversifica.")
+            alertas_graves.append(f"⚠️ **Riesgo Alto:** Estás muy expuesto a **{asset_max}** ({max_peso:.1f}%). Si cae, sufres. Diversifica.")
 
-        # 2. Señales Técnicas (RSI)
+        # RSI (Timing)
         for _, row in df_final.iterrows():
             if row['RSI'] > 75:
-                consejos_venta.append(f"🔴 **{row['Nombre']}** está caro (RSI {row['RSI']:.0f}). Podría bajar pronto. ¿Vender un poco?")
+                consejos_venta.append(f"🔴 **{row['Nombre']}** está caro (RSI {row['RSI']:.0f}). Podría corregir.")
             elif row['RSI'] < 30:
-                consejos_compra.append(f"🟢 **{row['Nombre']}** ha bajado mucho (RSI {row['RSI']:.0f}). Oportunidad estadística de compra.")
+                consejos_compra.append(f"🟢 **{row['Nombre']}** ha bajado mucho (RSI {row['RSI']:.0f}). Oportunidad de entrada.")
 
-        # 3. Rendimiento
-        peor = df_final.loc[df_final['Rentabilidad'].idxmin()]
-        if peor['Rentabilidad'] < -15:
-            observaciones.append(f"📉 **{peor['Nombre']}** es tu peor activo ({peor['Rentabilidad']:.1f}%). Revisa si la empresa sigue bien.")
+        # --- 2. LÓGICA DE MERCADO (NUEVO: ROTACIÓN Y COBERTURA) ---
+        # Analizamos activos externos para ver qué le falta a la cartera
+        benchmarks = {
+            'SPY': 'S&P 500 (Mercado)',
+            'GLD': 'Oro (Refugio)',
+            'TLT': 'Bonos USA (Defensivo)',
+            'XLE': 'Energía (Inflación)',
+            'XLP': 'Consumo Básico (Estabilidad)'
+        }
+        
+        with st.spinner("Analizando mercado global para sugerirte coberturas..."):
+            try:
+                # Descargar datos de benchmarks
+                bench_data = yf.download(list(benchmarks.keys()), period="1y", progress=False)['Close']
+                
+                # Crear índice sintético de TU cartera (promedio ponderado simple)
+                my_portfolio_returns = history_data.pct_change().mean(axis=1)
+                
+                # Calcular correlaciones de tu cartera con los benchmarks
+                bench_returns = bench_data.pct_change()
+                correlations = bench_returns.corrwith(my_portfolio_returns)
+                
+                # Analizar Beta (Sensibilidad al mercado)
+                if 'SPY' in correlations:
+                    beta_proxy = correlations['SPY']
+                    if beta_proxy > 0.85:
+                        alertas_graves.append(f"⚠️ **Cartera Agresiva:** Tu cartera se mueve casi igual que la bolsa (Corr: {beta_proxy:.2f}). En caídas sufrirás.")
+                        
+                        # Buscar el mejor activo para proteger (Correlación más baja o negativa)
+                        best_hedge = correlations.idxmin()
+                        hedge_val = correlations.min()
+                        hedge_name = benchmarks.get(best_hedge, best_hedge)
+                        
+                        estrategia_rotacion.append(f"🛡️ **Consejo Defensivo:** Para no notar tanto los cambios, añade **{hedge_name} ({best_hedge})**. Su correlación contigo es baja ({hedge_val:.2f}), así que cuando tu cartera baje, esto debería aguantar o subir.")
+                    
+                    elif beta_proxy < 0.3:
+                        estrategia_rotacion.append("ℹ️ **Cartera Defensiva:** Tu cartera ya es muy estable y se mueve poco con el mercado.")
+                
+            except Exception as e:
+                # Fallo silencioso en benchmarks para no romper la app
+                print(f"Error benchmark: {e}")
 
-        # --- CHAT ---
+        # --- CHAT UI ---
         with st.chat_message("assistant", avatar="🤖"):
-            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. He analizado tus {len(df_final)} activos en tiempo real.")
+            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. He analizado tus activos y el mercado global.")
         
         if alertas_graves:
             with st.chat_message("assistant", avatar="🚨"):
                 for a in alertas_graves: st.error(a)
         
+        # MOSTRAR ESTRATEGIA DE ROTACIÓN (LO NUEVO)
+        if estrategia_rotacion:
+            with st.chat_message("assistant", avatar="🛡️"):
+                st.write("**Estrategia de Rotación sugerida:**")
+                for e in estrategia_rotacion: st.info(e)
+                
         if consejos_compra or consejos_venta:
             with st.chat_message("assistant", avatar="💰"):
-                st.write("**Oportunidades detectadas:**")
+                st.write("**Movimientos Tácticos en tu cartera:**")
                 for c in consejos_compra: st.markdown(c)
                 for v in consejos_venta: st.markdown(v)
-        else:
-            with st.chat_message("assistant", avatar="✅"):
-                st.write("El mercado está estable para tu cartera. Mantener posiciones es sensato.")
-                
-        if observaciones:
-            with st.chat_message("assistant", avatar="📊"):
-                for o in observaciones: st.write(o)
+        
+        if not alertas_graves and not consejos_compra and not consejos_venta:
+             with st.chat_message("assistant", avatar="✅"):
+                st.write("Todo parece en orden. Tu cartera está equilibrada.")
 
         st.divider()
         
         # --- MAPA DE CORRELACIONES ---
-        st.subheader("🕸️ Diversificación Real (Correlaciones)")
+        st.subheader("🕸️ Diversificación Real")
         with st.expander("Ver Mapa de Calor", expanded=True):
             if not history_data.empty and len(tickers) > 1:
-                st.write("Si es **Rojo**, se mueven igual (Malo para diversificar). Si es **Azul**, se mueven distinto (Bueno).")
                 corr = history_data.corr()
                 fig, ax = plt.subplots(figsize=(8, 5))
                 sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
                 st.pyplot(fig)
+                
             else:
-                st.info("Añade al menos 2 activos para ver si están correlacionados.")
+                st.info("Añade al menos 2 activos para ver correlaciones.")
 
 # ==============================================================================
 # 📊 PÁGINA 2: DASHBOARD GENERAL
