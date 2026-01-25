@@ -12,12 +12,12 @@ import matplotlib.pyplot as plt
 from textblob import TextBlob
 from datetime import datetime, timedelta
 import re
-from duckduckgo_search import DDGS # <--- EL NUEVO MOTOR DE BÚSQUEDA
+from duckduckgo_search import DDGS 
 
 # --- CONFIGURACIÓN GLOBAL ---
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦")
 
-# --- ESTILOS CSS (MEJORADOS PARA NOTICIAS) ---
+# --- ESTILOS CSS ---
 st.markdown("""
 <style>
     .metric-card {background-color: #f0f2f6; border-radius: 10px; padding: 15px; border: 1px solid #e0e0e0;}
@@ -26,7 +26,7 @@ st.markdown("""
     div[role="tablist"] {justify-content: center;}
     .big-font {font-size:24px !important; font-weight: bold; color: #2E7D32;}
     
-    /* Estilo Chat de Noticias Twitch */
+    /* Estilo Chat Noticias */
     .news-container {
         height: 85vh;
         overflow-y: auto;
@@ -55,7 +55,6 @@ st.markdown("""
     .news-title { font-size: 0.9em; font-weight: 600; line-height: 1.2; margin-bottom: 5px; color: #111; }
     .news-title a { text-decoration: none; color: #111; }
     .news-title a:hover { color: #00CC96; }
-    .news-date { font-size: 0.7em; color: #999; }
     
     /* Animación suave */
     .stApp { transition: all 0.3s ease-in-out; }
@@ -79,10 +78,9 @@ supabase = init_supabase()
 # --- SESIÓN ---
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'show_news' not in st.session_state: st.session_state['show_news'] = True
-if 'news_filter' not in st.session_state: st.session_state['news_filter'] = 'd' # d=dia, w=semana, m=mes
 
 # ==============================================================================
-# 🔄 LOGIN
+# 🔄 LOGIN Y REGISTRO
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -99,24 +97,35 @@ if not st.session_state['user']:
         st.title("🏦 Carterapro Ultra")
         st.caption("Gestión Patrimonial Personal")
         
-        if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
-            try:
-                data = supabase.auth.sign_in_with_oauth({
-                    "provider": "google",
-                    "options": {"redirect_to": "https://carterapro.streamlit.app"}
-                })
-                st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
-            except Exception as e: st.error(f"Error: {e}")
+        tab_login, tab_signup = st.tabs(["🔐 Entrar", "📝 Registro"])
         
-        st.divider()
-        email = st.text_input("Email")
-        password = st.text_input("Contraseña", type="password")
-        if st.button("Entrar"):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                st.session_state['user'] = res.user
-                st.rerun()
-            except Exception as e: st.error(f"Error: {e}")
+        with tab_login:
+            if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
+                try:
+                    data = supabase.auth.sign_in_with_oauth({
+                        "provider": "google",
+                        "options": {"redirect_to": "https://carterapro.streamlit.app"}
+                    })
+                    st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
+                except Exception as e: st.error(f"Error: {e}")
+            st.divider()
+            email = st.text_input("Email", key="l_em")
+            password = st.text_input("Contraseña", type="password", key="l_pa")
+            if st.button("Entrar", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state['user'] = res.user
+                    st.rerun()
+                except Exception as e: st.error("Credenciales incorrectas.")
+
+        with tab_signup:
+            r_email = st.text_input("Email", key="r_em")
+            r_pass = st.text_input("Contraseña", type="password", key="r_pa")
+            if st.button("Crear Cuenta", type="primary", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_up({"email": r_email, "password": r_pass})
+                    st.success("Cuenta creada. Revisa tu correo.")
+                except Exception as e: st.error(f"Error: {e}")
     st.stop()
 
 user = st.session_state['user']
@@ -171,7 +180,7 @@ def sanitize_input(text):
     if not isinstance(text, str): return ""
     return re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
 
-# --- FUNCIONES BASE DE DATOS CACHEADAS ---
+# --- CACHE & DATOS ---
 @st.cache_data(ttl=60)
 def get_assets_db(uid):
     try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
@@ -200,42 +209,35 @@ def get_market_data(tickers):
         return data
     except: return pd.DataFrame()
 
-# --- 📰 EL NUEVO BOT DE NOTICIAS DE INTERNET ---
-@st.cache_data(ttl=600) # Cachear 10 min
+@st.cache_data(ttl=600) 
 def get_global_news(tickers, time_filter='d'):
-    """Busca noticias en todo internet usando DuckDuckGo"""
     results = []
-    
-    # 1. Construir query inteligente
-    if not tickers:
-        query = "Finanzas Mercado Economía Inversión"
+    if tickers:
+        main_ticker = tickers[0]
+        queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado valores economía"]
     else:
-        # Cogemos los 3 activos más importantes para no saturar la búsqueda
-        top_tickers = tickers[:3] 
-        query = f"Noticias {' '.join(top_tickers)} mercado financiero"
+        queries_to_try = ["Noticias economía inversiones españa"]
     
     try:
-        # Usamos DuckDuckGo News
         with DDGS() as ddgs:
-            # timelimit: d (día), w (semana), m (mes)
-            ddg_news = list(ddgs.news(query, region="es-es", safesearch="off", timelimit=time_filter, max_results=10))
-            
-            for n in ddg_news:
-                results.append({
-                    'title': n.get('title'),
-                    'source': n.get('source'),
-                    'date': n.get('date'), # Viene en formato relativo a veces
-                    'url': n.get('url'),
-                    'image': n.get('image', None) # Miniatura si existe
-                })
-    except Exception as e:
-        print(f"Error DDG: {e}")
-        
+            for q in queries_to_try:
+                ddg_news = list(ddgs.news(q, region="es-es", safesearch="off", timelimit=time_filter, max_results=10))
+                if ddg_news:
+                    for n in ddg_news:
+                        results.append({
+                            'title': n.get('title'),
+                            'source': n.get('source'),
+                            'date': n.get('date'), 
+                            'url': n.get('url'),
+                            'image': n.get('image', None)
+                        })
+                    break 
+    except: pass
     return results
 
 def clear_cache(): st.cache_data.clear()
 
-# --- FUNCIONES ESCRITURA DB ---
+# --- ESCRITURA DB ---
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
     clear_cache()
@@ -322,14 +324,17 @@ else:
 with col_main:
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Visión Global")
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("💰 Patrimonio", f"{patrimonio_total:,.2f} €")
-        if total_inversiones>0:
-            gan = df_final['Ganancia'].sum()
-            c2.metric("📈 P&L", f"{gan:+,.2f} €", f"{(gan/df_final['Dinero Invertido'].sum()*100):.2f}%")
-        else: c2.metric("📈 P&L", "0€")
-        c3.metric("💧 Liquidez", f"{total_liquidez:,.2f} €")
-        c4.metric("⚡ Volatilidad", f"{df_final['Volatilidad'].mean() if not df_final.empty else 0:.1f}%")
+        col_kpi, col_date = st.columns([3, 1])
+        with col_date: start_date = st.date_input("📅 Rendimiento desde:", value=datetime.now()-timedelta(days=180))
+        with col_kpi:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("💰 Patrimonio", f"{patrimonio_total:,.2f} €")
+            if total_inversiones>0:
+                gan = df_final['Ganancia'].sum()
+                c2.metric("📈 P&L", f"{gan:+,.2f} €", f"{(gan/df_final['Dinero Invertido'].sum()*100):.2f}%")
+            else: c2.metric("📈 P&L", "0€")
+            c3.metric("💧 Liquidez", f"{total_liquidez:,.2f} €")
+            c4.metric("⚡ Volatilidad", f"{df_final['Volatilidad'].mean() if not df_final.empty else 0:.1f}%")
         
         st.divider()
         c_ch, c_pi = st.columns([2,1])
@@ -354,6 +359,24 @@ with col_main:
                 fig = px.pie(values=vals, names=nams, hole=0.5, color_discrete_sequence=px.colors.qualitative.Prism)
                 fig.update_layout(height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0))
                 st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+        c_tree, c_bar = st.columns([1.5, 1.5])
+        with c_tree:
+            st.subheader("🗺️ Mapa de Calor")
+            if not df_final.empty:
+                fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad', color_continuous_scale='RdYlGn', color_continuous_midpoint=0)
+                fig_tree.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0))
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else: st.info("Sin inversiones.")
+        with c_bar:
+            st.subheader("🏆 Ranking (€)")
+            if not df_final.empty:
+                df_sorted = df_final.sort_values('Ganancia', ascending=False)
+                fig_bar = px.bar(df_sorted, x='Ganancia', y='Nombre', orientation='h', color='Ganancia', color_continuous_scale='RdYlGn', text_auto='.2s')
+                fig_bar.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else: st.info("Sin inversiones.")
 
     elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Mi Liquidez")
@@ -382,7 +405,7 @@ with col_main:
         with t1:
             c1, c2 = st.columns(2)
             with c1:
-                q = st.text_input("Buscar Activo:", placeholder="ISIN/Nombre")
+                q = st.text_input("Buscar:", placeholder="ISIN o Nombre...")
                 if st.button("🔍") and q:
                     r = search(sanitize_input(q))
                     if 'quotes' in r: st.session_state['s'] = r['quotes']
@@ -415,12 +438,13 @@ with col_main:
                     r = df_final[df_final['Nombre']==nom].iloc[0]
                     st.info(f"Tienes: **{r['shares']:.4f}** accs")
                 with c2:
-                    st.metric("Precio", f"{r['Precio Actual']:.2f}€")
+                    lp = r['Precio Actual']
+                    st.metric("Precio", f"{lp:.2f}€")
                     op = st.radio("Acción", ["Compra", "Venta"], horizontal=True)
                     amt = st.number_input("Importe (€)", 0.0, step=50.0)
                     st.caption(f"Liquidez: {total_liquidez:,.2f}€")
                     if amt > 0:
-                        sh = amt / r['Precio Actual']
+                        sh = amt / lp
                         if "Compra" in op:
                             if amt > total_liquidez: st.error("Sin liquidez")
                             else:
@@ -514,7 +538,6 @@ if st.session_state['show_news']:
     with col_news:
         st.markdown("<div class='news-container'>", unsafe_allow_html=True)
         
-        # Header del Chat
         c_h1, c_h2 = st.columns([3, 1])
         with c_h1: st.subheader("🤖 Bot News")
         with c_h2: 
@@ -522,12 +545,10 @@ if st.session_state['show_news']:
                 st.cache_data.clear()
                 st.rerun()
                 
-        # Filtros de tiempo
         tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
         sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy")
         time_code = tf_map[sel_tf]
         
-        # Cargar Noticias (Globales)
         news_feed = get_global_news(my_tickers, time_code)
         
         if news_feed:
