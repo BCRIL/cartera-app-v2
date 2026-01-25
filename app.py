@@ -89,12 +89,12 @@ with st.sidebar:
     st.image(user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'), width=60)
     st.markdown(f"### {user.user_metadata.get('full_name', 'Inversor')}")
     pagina = st.radio("Navegación", [
-        "Dashboard & Alpha", 
-        "Liquidez (Cash)",
-        "Gestión de Inversiones",
-        "Asesor de Riesgos", 
-        "Monte Carlo", 
-        "Rebalanceo"
+        "📊 Dashboard & Alpha", 
+        "💰 Liquidez (Cash)",
+        "➕ Gestión de Inversiones",
+        "🤖 Asesor de Riesgos", 
+        "🔮 Monte Carlo", 
+        "⚖️ Rebalanceo"
     ])
     st.divider()
     if st.button("Cerrar Sesión"):
@@ -235,8 +235,8 @@ patrimonio_total = total_inversiones + total_liquidez
 # ==============================================================================
 # 📊 PÁGINA 1: DASHBOARD
 # ==============================================================================
-if pagina == "Dashboard & Alpha":
-    st.title("Control de Mando Integral")
+if pagina == "📊 Dashboard & Alpha":
+    st.title("📊 Control de Mando Integral")
     
     col_kpi, col_date = st.columns([3, 1])
     with col_date:
