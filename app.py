@@ -88,14 +88,20 @@ with st.sidebar:
     if st.button("Cerrar Sesión"):
         supabase.auth.sign_out(); st.session_state['user'] = None; st.rerun()
 
-# --- FUNCIONES MATEMÁTICAS ROBUSTAS ---
+# --- FUNCIONES MATEMÁTICAS ROBUSTAS (FIX NAN/INF) ---
 def safe_metric_calc(series):
     """Calcula métricas evitando errores de NaN/Inf"""
+    # 1. Limpieza inicial: Rellenar huecos y borrar vacíos
     clean = series.fillna(method='ffill').dropna()
-    if len(clean) < 10: return 0, 0, 0, 0
+    
+    if len(clean) < 10: return 0, 0, 0, 0 # No hay suficientes datos
+    
+    # 2. Calcular retornos diarios
     returns = clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+    
     if returns.empty: return 0, 0, 0, 0
 
+    # 3. Retorno Total
     try:
         start = clean.iloc[0]
         end = clean.iloc[-1]
@@ -103,18 +109,22 @@ def safe_metric_calc(series):
         else: total_ret = (end / start) - 1
     except: total_ret = 0
     
+    # 4. Volatilidad (Anualizada)
     vol = returns.std() * np.sqrt(252)
     if np.isnan(vol): vol = 0
     
+    # 5. Max Drawdown
     cum_ret = (1 + returns).cumprod()
     peak = cum_ret.cummax()
     dd = (cum_ret - peak) / peak
     max_dd = dd.min()
     if np.isnan(max_dd): max_dd = 0
     
-    rf = 0.03
+    # 6. Sharpe
+    rf = 0.03 # 3% tasa libre de riesgo
     mean_ret = returns.mean() * 252
-    sharpe = (mean_ret - rf) / vol if vol > 0.01 else 0
+    if vol > 0.01: sharpe = (mean_ret - rf) / vol
+    else: sharpe = 0
     
     return total_ret, vol, max_dd, sharpe
 
@@ -142,21 +152,29 @@ benchmark_data = pd.Series()
 
 if not df_db.empty:
     tickers = df_db['ticker'].unique().tolist()
+    # Descargar tickers + SPY
     tickers_api = list(set(tickers + ['SPY', 'GLD'])) 
     
     try:
+        # Descarga
         data_raw = yf.download(tickers_api, period="1y", progress=False)['Close']
-        data_raw.index = data_raw.index.tz_localize(None)
-        data_raw = data_raw.fillna(method='ffill').fillna(method='bfill')
         
+        # Eliminar Timezone para evitar conflictos
+        data_raw.index = data_raw.index.tz_localize(None)
+        
+        # Limpieza CRÍTICA de datos globales
+        data_raw = data_raw.fillna(method='ffill').fillna(method='bfill') # Rellenar huecos
+        
+        # Separar
         if 'SPY' in data_raw.columns:
             benchmark_data = data_raw['SPY']
             history = data_raw.drop(columns=['SPY', 'GLD'], errors='ignore')
         else:
             history = data_raw
             
-        history_data = history
+        history_data = history # Guardar para uso global
         
+        # Calcular métricas por activo
         metrics_dict = {}
         prices_dict = {}
         rsi_dict = {}
@@ -166,6 +184,7 @@ if not df_db.empty:
                 s = history[t]
                 prices_dict[t] = s.iloc[-1]
                 
+                # RSI
                 if len(s) > 15:
                     delta = s.diff()
                     up, down = delta.clip(lower=0), -1*delta.clip(upper=0)
@@ -179,17 +198,20 @@ if not df_db.empty:
             else:
                 prices_dict[t] = 0; rsi_dict[t]=50; metrics_dict[t]={'vol':0,'dd':0,'sharpe':0}
 
+        # DataFrame Final
         df_db['Precio Actual'] = df_db['ticker'].map(prices_dict)
         df_db['RSI'] = df_db['ticker'].map(rsi_dict)
         df_db['Volatilidad'] = df_db['ticker'].apply(lambda x: metrics_dict[x]['vol']*100)
         df_db['Max Drawdown'] = df_db['ticker'].apply(lambda x: metrics_dict[x]['dd']*100)
-        df_db['Sharpe'] = df_db['ticker'].apply(lambda x: metrics[x]['sharpe'])
+        df_db['Sharpe'] = df_db['ticker'].apply(lambda x: metrics_dict[x]['sharpe'])
         
         df_db['Valor Acciones'] = df_db['shares'] * df_db['Precio Actual']
         df_db['Dinero Invertido'] = df_db['shares'] * df_db['avg_price']
         df_db['Ganancia'] = df_db['Valor Acciones'] - df_db['Dinero Invertido']
         
+        # Evitar división por cero en rentabilidad
         df_db['Rentabilidad'] = df_db.apply(lambda row: (row['Ganancia']/row['Dinero Invertido']*100) if row['Dinero Invertido']>0 else 0, axis=1)
+        
         total_val = df_db['Valor Acciones'].sum()
         df_db['Peso %'] = df_db.apply(lambda row: (row['Valor Acciones']/total_val*100) if total_val>0 else 0, axis=1)
         
@@ -198,55 +220,38 @@ if not df_db.empty:
     except Exception as e: st.error(f"Error procesando datos: {e}")
 
 # ==============================================================================
-# 📊 PÁGINA 1: DASHBOARD & ALPHA (CON FILTRO DE FECHA)
+# 📊 PÁGINA 1: DASHBOARD
 # ==============================================================================
 if pagina == "📊 Dashboard & Alpha":
     st.title("📊 Control de Mando")
     if df_final.empty: st.warning("Añade activos."); st.stop()
     
-    # --- FILTRO DE FECHA ---
-    col_kpi, col_filter = st.columns([3, 1])
-    with col_filter:
-        # Default: 1 de Enero del año actual, o hace 6 meses
-        default_date = datetime.now() - timedelta(days=180)
-        start_date = st.date_input("📅 Rendimiento desde:", value=default_date)
-        
-    # Filtrar Datos Históricos
-    hist_filtered = pd.DataFrame()
-    bench_filtered = pd.Series()
+    patrimonio = df_final['Valor Acciones'].sum()
+    ganancia = df_final['Ganancia'].sum()
+    inv_total = df_final['Dinero Invertido'].sum()
+    rent_total = (ganancia / inv_total * 100) if inv_total > 0 else 0
+    sharpe_avg = df_final['Sharpe'].mean()
     
-    if not history_data.empty:
-        start_dt = pd.to_datetime(start_date).tz_localize(None)
-        hist_filtered = history_data[history_data.index >= start_dt]
-        if not benchmark_data.empty:
-            bench_filtered = benchmark_data[benchmark_data.index >= start_dt]
-
-    with col_kpi:
-        patrimonio = df_final['Valor Acciones'].sum()
-        ganancia = df_final['Ganancia'].sum()
-        inv_total = df_final['Dinero Invertido'].sum()
-        rent_total = (ganancia / inv_total * 100) if inv_total > 0 else 0
-        sharpe_avg = df_final['Sharpe'].mean()
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("💰 Patrimonio", f"{patrimonio:,.2f} €", help="Valor actual total")
-        c2.metric("📈 Beneficio Total", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
-        c3.metric("⚖️ Sharpe", f"{sharpe_avg:.2f}", help="Calidad del retorno (>1 es bueno)")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("💰 Patrimonio", f"{patrimonio:,.2f} €", help="Dinero actual")
+    k2.metric("📈 Beneficio", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
+    k3.metric("⚖️ Sharpe", f"{sharpe_avg:.2f}", help="Calidad del retorno (>1 es bueno)")
+    k4.metric("📉 Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help="Peor caída histórica")
     
     st.divider()
     
     c1, c2 = st.columns([2, 1])
     with c1:
-        st.subheader("🏁 Tu Cartera vs. Mercado")
-        if not hist_filtered.empty and not bench_filtered.empty:
-            # Índice Sintético Cartera FILTRADO
-            my_hist = hist_filtered.sum(axis=1)
+        st.subheader("🏁 Alpha vs Mercado")
+        if not history_data.empty and not benchmark_data.empty:
+            # Índice Sintético Cartera
+            my_hist = history_data.sum(axis=1)
             # Alinear fechas
-            idx = my_hist.index.intersection(bench_filtered.index)
+            idx = my_hist.index.intersection(benchmark_data.index)
             
-            if len(idx) > 2:
+            if len(idx) > 10:
                 my_s = my_hist.loc[idx]
-                spy_s = bench_filtered.loc[idx]
+                spy_s = benchmark_data.loc[idx]
                 
                 # Normalizar base 100
                 my_norm = my_s / my_s.iloc[0] * 100
@@ -255,14 +260,13 @@ if pagina == "📊 Dashboard & Alpha":
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=my_norm.index, y=my_norm, name="Tú", line=dict(color='#00CC96', width=2)))
                 fig.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm, name="S&P 500", line=dict(color='gray', dash='dot')))
-                fig.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+                fig.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0))
                 st.plotly_chart(fig, use_container_width=True)
                 
                 alpha = my_norm.iloc[-1] - spy_norm.iloc[-1]
-                if alpha > 0: st.success(f"🚀 Desde {start_date.strftime('%d/%m')}, ganas al mercado por **{alpha:.2f}%**")
-                else: st.warning(f"⚠️ Desde {start_date.strftime('%d/%m')}, el mercado te gana por **{abs(alpha):.2f}%**")
-            else: st.info("Datos insuficientes en este rango de fechas.")
-        else: st.info("Sin datos históricos para este periodo.")
+                if alpha > 0: st.success(f"🚀 Ganas al mercado por **{alpha:.2f}%**")
+                else: st.warning(f"⚠️ Pierdes contra el mercado por **{alpha:.2f}%**")
+            else: st.info("Datos insuficientes para comparar.")
             
     with c2:
         st.subheader("Diversificación")
@@ -270,7 +274,7 @@ if pagina == "📊 Dashboard & Alpha":
         fig.update_layout(height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0))
         st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("📋 Detalle de Activos")
+    st.subheader("📋 Detalle")
     st.dataframe(df_final[['Nombre','Precio Actual','Peso %','Rentabilidad','RSI','Sharpe','Max Drawdown']].style.format({
         'Precio Actual':'{:.2f}€', 'Peso %':'{:.1f}%', 'Rentabilidad':'{:.2f}%', 'RSI':'{:.0f}', 'Sharpe':'{:.2f}', 'Max Drawdown':'{:.2f}%'
     }).background_gradient(subset=['Rentabilidad'], cmap='RdYlGn', vmin=-20, vmax=20), use_container_width=True)
@@ -328,7 +332,7 @@ elif pagina == "🤖 Asesor de Riesgos":
         else: st.info("Faltan datos para correlaciones.")
 
 # ==============================================================================
-# 🔮 PÁGINA 3: MONTE CARLO
+# 🔮 PÁGINA 3: MONTE CARLO (FIXED NAN)
 # ==============================================================================
 elif pagina == "🔮 Monte Carlo":
     st.title("🔮 Simulación Futura")
@@ -340,16 +344,23 @@ elif pagina == "🔮 Monte Carlo":
         
         # Calculo parametros SEGURO
         if not history_data.empty:
-            daily_series = history_data.sum(axis=1).replace(0, np.nan).dropna()
+            # Sumamos todo para tener la cartera total diaria
+            daily_series = history_data.sum(axis=1)
+            # Rellenar ceros iniciales si los hay
+            daily_series = daily_series.replace(0, np.nan).dropna()
+            
             if len(daily_series) > 10:
                 daily_ret = daily_series.pct_change().dropna()
                 mu = daily_ret.mean() * 252
                 sigma = daily_ret.std() * np.sqrt(252)
-            else: mu, sigma = 0.07, 0.15 
-        else: mu, sigma = 0.07, 0.15
+            else:
+                mu, sigma = 0.07, 0.15 # Defaults si falla
+        else:
+            mu, sigma = 0.07, 0.15
             
-        if np.isnan(mu): mu = 0.07
-        if np.isnan(sigma) or sigma == 0: sigma = 0.15
+        # Evitar Inf/NaN
+        if np.isnan(mu) or np.isinf(mu): mu = 0.07
+        if np.isnan(sigma) or np.isinf(sigma) or sigma == 0: sigma = 0.15
             
         st.metric("Retorno Histórico", f"{mu*100:.1f}%")
         st.metric("Volatilidad", f"{sigma*100:.1f}%")
@@ -361,7 +372,7 @@ elif pagina == "🔮 Monte Carlo":
         if run:
             dt = 1/252
             paths = []
-            for _ in range(50): 
+            for _ in range(50): # 50 simulaciones
                 p = [curr_val]
                 for _ in range(int(years*252)):
                     shock = np.random.normal(0,1)
