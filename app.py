@@ -97,16 +97,15 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* --- CHAT DE NOTICIAS (ESTILO TWITCH FIXED) --- */
-    /* El contenedor con scroll */
+/* --- CHAT DE NOTICIAS (CORREGIDO) --- */
     .news-scroll-area {
-        height: 75vh; /* Altura fija para forzar scroll */
+        height: 65vh; /* Altura ajustada para dejar hueco a los filtros de arriba */
         overflow-y: auto;
         padding: 15px;
         background-color: #161B22;
         border: 1px solid #30363D;
         border-radius: 12px;
-        margin-top: 10px;
+        margin-top: 15px; /* Separación con los filtros */
     }
     
     /* Scrollbar */
@@ -660,41 +659,60 @@ with col_main:
                 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- BOT DE NOTICIAS (RIGHT PANEL) ---
+# --- BOT DE NOTICIAS DERECHA (ESTILO TWITCH FIXED) ---
 if st.session_state['show_news']:
     with col_news:
-        st.markdown("<div class='news-scroll-area'>", unsafe_allow_html=True)
-        
-        # HEADER FIJO DENTRO DEL SCROLL (Opcional, mejor visual)
-        st.subheader("🤖 Bot News")
-        
-        # CONTROLES
-        c_ref, c_fil = st.columns([1, 2])
-        with c_ref:
-            if st.button("🔄"):
+        # 1. CABECERA FIJA (TÍTULO Y BOTÓN)
+        # Esto va fuera del scroll para que siempre sea visible
+        c_head, c_btn = st.columns([3, 1])
+        with c_head:
+            st.markdown("<h3 style='margin:0; padding:0;'>🤖 Bot News</h3>", unsafe_allow_html=True)
+        with c_btn:
+            if st.button("🔄", help="Actualizar ahora", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
-        with c_fil:
-            tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
-            sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy")
-            time_code = tf_map[sel_tf]
-
-        # CARGAR NOTICIAS (HTML PURO PARA QUE SEAN HIJOS DEL SCROLL)
+        
+        # 2. FILTROS (FIJOS)
+        # Usamos st.pills para filtrar
+        tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
+        sel_tf = st.pills("📅 Filtro:", list(tf_map.keys()), default="Hoy", label_visibility="collapsed")
+        time_code = tf_map[sel_tf]
+        
+        # 3. CONTENIDO CON SCROLL (EL RECTÁNGULO)
+        # Obtenemos los datos
         news_feed = get_global_news(my_tickers, time_code)
         
-        news_html = ""
+        # Generamos TODO el HTML de las noticias en una sola variable string
+        html_content = ""
+        
         if news_feed:
             for n in news_feed:
-                img_tag = f"<img src='{n['image']}' class='news-img'/>" if n['image'] else ""
-                news_html += f"""
+                # Lógica de imagen: Si hay, la pone, si no, nada
+                img_tag = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
+                
+                # Construimos la tarjeta en HTML puro
+                html_content += f"""
                 <div class="news-card">
                     {img_tag}
-                    <div class="news-source">{n['source']} • {n['date']}</div>
-                    <div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div>
+                    <div class="news-source">{n.get('source', 'Internet')} • {n.get('date', '')}</div>
+                    <div class="news-title">
+                        <a href="{n.get('url', '#')}" target="_blank">{n.get('title', 'Sin título')}</a>
+                    </div>
                 </div>
                 """
         else:
-            news_html = "<div style='color:#888; text-align:center; padding:20px;'>No hay noticias recientes.</div>"
-            
-        st.markdown(news_html, unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+            html_content = """
+            <div style='color:#888; text-align:center; padding:40px;'>
+                <div style='font-size: 40px;'>💤</div>
+                <p>No hay noticias recientes con este filtro.</p>
+                <small>Intenta cambiar a 'Semana' o dale a 🔄</small>
+            </div>
+            """
+
+        # 4. RENDERIZADO FINAL
+        # Aquí es donde metemos todo el HTML generado DENTRO del div con scroll
+        st.markdown(f"""
+        <div class='news-scroll-area'>
+            {html_content}
+        </div>
+        """, unsafe_allow_html=True)
