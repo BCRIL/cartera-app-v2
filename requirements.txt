@@ -4,3 +4,4 @@ yfinance
 yahooquery
 supabase
 plotly
+matplotlib
