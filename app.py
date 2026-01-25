@@ -13,7 +13,7 @@ from textblob import TextBlob
 from datetime import datetime, timedelta
 import re
 from duckduckgo_search import DDGS 
-import openai # Usamos la librería de OpenAI pero conectada a Groq
+import openai 
 
 # --- CONFIGURACIÓN GLOBAL ---
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
@@ -581,7 +581,7 @@ with col_main:
                 if c3.button("Actualizar"): update_asset_db(int(re['id']), ns, na); st.rerun()
                 if st.button("Borrar"): delete_asset_db(int(re['id'])); st.rerun()
 
-elif pagina == "💬 Asesor AI":
+    elif pagina == "💬 Asesor AI":
         st.title("💬 Asesor Financiero Personal")
         
         # 1. Preparar Contexto
@@ -590,9 +590,9 @@ elif pagina == "💬 Asesor AI":
         if not df_final.empty:
             ctx += "Cartera de Inversiones: "
             for idx, r in df_final.iterrows():
-                # CORRECCIÓN AQUÍ: Usamos nombres de columnas seguros
+                # CORRECCIÓN DE COLUMNAS
                 nombre = r['Nombre']
-                valor = r['Valor Acciones'] 
+                valor = r['Valor Acciones'] # <--- Corregido
                 ganancia = r['Ganancia']
                 rentabilidad = r['Rentabilidad']
                 ctx += f"[{nombre}: Valor {valor:.2f}€, P&L {ganancia:.2f}€ ({rentabilidad:.2f}%)]. "
@@ -608,28 +608,18 @@ elif pagina == "💬 Asesor AI":
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
 
-            # Comprobar si hay clave de Groq configurada
-            if "GROQ_API_KEY" in st.secrets:
+            if HAS_GROQ:
                 with st.chat_message("assistant"):
                     try:
-                        client = openai.OpenAI(
-                            base_url="https://api.groq.com/openai/v1", 
-                            api_key=st.secrets["GROQ_API_KEY"]
-                        )
-                        
+                        client = openai.OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
                         stream = client.chat.completions.create(
-                            # --- CAMBIO IMPORTANTE: MODELO NUEVO ---
-                            model="llama-3.3-70b-versatile", 
-                            messages=[
-                                {"role": "system", "content": f"Eres un asesor financiero experto y sarcástico. Datos: {ctx}. Responde breve y útil."}, 
-                                *st.session_state.messages
-                            ],
+                            model="llama-3.3-70b-versatile", # <--- Modelo Nuevo
+                            messages=[{"role": "system", "content": f"Eres un asesor experto y sarcástico. Datos: {ctx}. Responde breve."}, *st.session_state.messages],
                             stream=True
                         )
                         response = st.write_stream(stream)
                         st.session_state.messages.append({"role": "assistant", "content": response})
-                    except Exception as e: 
-                        st.error(f"Error AI: {e}")
+                    except Exception as e: st.error(f"Error AI: {e}")
             else:
                 st.warning("⚠️ Falta la clave GROQ_API_KEY en secrets.toml")
 
@@ -721,17 +711,17 @@ if st.session_state['show_news']:
         sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy", label_visibility="collapsed")
         time_code = tf_map[sel_tf]
         
-        # 3. NOTICIAS (SIN INDENTACIÓN EN EL HTML)
+        # 3. NOTICIAS (HTML LIMPIO)
         news_feed = get_global_news(my_tickers, time_code)
         
         html_content = ""
         if news_feed:
             for n in news_feed:
-                # Lógica de imagen
                 img_tag = ""
                 if n.get('image'):
                     img_tag = f"<img src='{n['image']}' class='news-img'/>"
                 
+                # HTML pegado a la izquierda para evitar que Markdown lo interprete como código
                 html_content += f"""
 <div class="news-card">
     {img_tag}
