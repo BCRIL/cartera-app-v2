@@ -21,6 +21,7 @@ st.markdown("""
     .metric-card {background-color: #f0f2f6; border-radius: 10px; padding: 15px; border: 1px solid #e0e0e0;}
     .stMetric {text-align: center;}
     div[data-testid="stMetricLabel"] > div > div {cursor: help;}
+    div[role="tablist"] {justify-content: center;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -29,7 +30,7 @@ try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 except:
-    st.error("❌ Error: Faltan secretos de Supabase.")
+    st.error("❌ Error Crítico: Faltan los secretos de Supabase.")
     st.stop()
 
 @st.cache_resource
@@ -57,6 +58,8 @@ if not st.session_state['user']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.title("🏦 Carterapro Ultra")
+        st.caption("Gestión Patrimonial Institucional")
+        
         if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
             try:
                 data = supabase.auth.sign_in_with_oauth({
@@ -83,48 +86,42 @@ user = st.session_state['user']
 with st.sidebar:
     st.image(user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'), width=60)
     st.markdown(f"### {user.user_metadata.get('full_name', 'Inversor')}")
-    pagina = st.radio("Navegación", ["📊 Dashboard & Alpha", "🤖 Asesor de Riesgos", "🔮 Monte Carlo", "➕ Gestión Activos", "⚖️ Rebalanceo"])
+    pagina = st.radio("Navegación", [
+        "📊 Dashboard & Alpha", 
+        "🤖 Asesor de Riesgos", 
+        "🔮 Monte Carlo", 
+        "➕ Gestión de Cartera", 
+        "⚖️ Rebalanceo"
+    ])
     st.divider()
     if st.button("Cerrar Sesión"):
         supabase.auth.sign_out(); st.session_state['user'] = None; st.rerun()
 
-# --- FUNCIONES MATEMÁTICAS ROBUSTAS (FIX NAN/INF) ---
+# --- FUNCIONES MATEMÁTICAS (ROBUSTAS) ---
 def safe_metric_calc(series):
-    """Calcula métricas evitando errores de NaN/Inf"""
-    # 1. Limpieza inicial: Rellenar huecos y borrar vacíos
+    """Calcula métricas evitando NaN/Inf"""
     clean = series.fillna(method='ffill').dropna()
+    if len(clean) < 5: return 0, 0, 0, 0
     
-    if len(clean) < 10: return 0, 0, 0, 0 # No hay suficientes datos
-    
-    # 2. Calcular retornos diarios
     returns = clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    
     if returns.empty: return 0, 0, 0, 0
 
-    # 3. Retorno Total
     try:
-        start = clean.iloc[0]
-        end = clean.iloc[-1]
-        if start == 0: total_ret = 0
-        else: total_ret = (end / start) - 1
+        total_ret = (clean.iloc[-1] / clean.iloc[0]) - 1
     except: total_ret = 0
     
-    # 4. Volatilidad (Anualizada)
     vol = returns.std() * np.sqrt(252)
     if np.isnan(vol): vol = 0
     
-    # 5. Max Drawdown
     cum_ret = (1 + returns).cumprod()
     peak = cum_ret.cummax()
     dd = (cum_ret - peak) / peak
     max_dd = dd.min()
     if np.isnan(max_dd): max_dd = 0
     
-    # 6. Sharpe
-    rf = 0.03 # 3% tasa libre de riesgo
+    rf = 0.03
     mean_ret = returns.mean() * 252
-    if vol > 0.01: sharpe = (mean_ret - rf) / vol
-    else: sharpe = 0
+    sharpe = (mean_ret - rf) / vol if vol > 0.01 else 0
     
     return total_ret, vol, max_dd, sharpe
 
@@ -134,12 +131,15 @@ def get_sentiment(text):
     elif blob.sentiment.polarity < -0.1: return "🔴"
     return "⚪"
 
-# --- CARGA DE DATOS ---
+# --- FUNCIONES BASE DE DATOS ---
 def get_assets_db():
     return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', user.id).execute().data)
 
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
+
+def update_asset_db(asset_id, shares, avg_price):
+    supabase.table('assets').update({"shares": shares, "avg_price": avg_price}).eq('id', asset_id).execute()
 
 def delete_asset_db(id_del):
     supabase.table('assets').delete().eq('id', id_del).execute()
@@ -152,29 +152,25 @@ benchmark_data = pd.Series()
 
 if not df_db.empty:
     tickers = df_db['ticker'].unique().tolist()
-    # Descargar tickers + SPY
+    # Añadimos SPY y GLD para análisis
     tickers_api = list(set(tickers + ['SPY', 'GLD'])) 
     
     try:
-        # Descarga
+        # Descarga Datos
         data_raw = yf.download(tickers_api, period="1y", progress=False)['Close']
-        
-        # Eliminar Timezone para evitar conflictos
+        # Corregir Timezone
         data_raw.index = data_raw.index.tz_localize(None)
+        # Rellenar huecos
+        data_raw = data_raw.fillna(method='ffill').fillna(method='bfill')
         
-        # Limpieza CRÍTICA de datos globales
-        data_raw = data_raw.fillna(method='ffill').fillna(method='bfill') # Rellenar huecos
-        
-        # Separar
         if 'SPY' in data_raw.columns:
             benchmark_data = data_raw['SPY']
             history = data_raw.drop(columns=['SPY', 'GLD'], errors='ignore')
         else:
             history = data_raw
             
-        history_data = history # Guardar para uso global
+        history_data = history
         
-        # Calcular métricas por activo
         metrics_dict = {}
         prices_dict = {}
         rsi_dict = {}
@@ -209,7 +205,6 @@ if not df_db.empty:
         df_db['Dinero Invertido'] = df_db['shares'] * df_db['avg_price']
         df_db['Ganancia'] = df_db['Valor Acciones'] - df_db['Dinero Invertido']
         
-        # Evitar división por cero en rentabilidad
         df_db['Rentabilidad'] = df_db.apply(lambda row: (row['Ganancia']/row['Dinero Invertido']*100) if row['Dinero Invertido']>0 else 0, axis=1)
         
         total_val = df_db['Valor Acciones'].sum()
@@ -220,53 +215,68 @@ if not df_db.empty:
     except Exception as e: st.error(f"Error procesando datos: {e}")
 
 # ==============================================================================
-# 📊 PÁGINA 1: DASHBOARD
+# 📊 PÁGINA 1: DASHBOARD & ALPHA (CON FILTRO DE FECHA)
 # ==============================================================================
 if pagina == "📊 Dashboard & Alpha":
     st.title("📊 Control de Mando")
-    if df_final.empty: st.warning("Añade activos."); st.stop()
+    if df_final.empty: st.warning("Cartera vacía. Añade activos."); st.stop()
     
-    patrimonio = df_final['Valor Acciones'].sum()
-    ganancia = df_final['Ganancia'].sum()
-    inv_total = df_final['Dinero Invertido'].sum()
-    rent_total = (ganancia / inv_total * 100) if inv_total > 0 else 0
-    sharpe_avg = df_final['Sharpe'].mean()
-    
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("💰 Patrimonio", f"{patrimonio:,.2f} €", help="Dinero actual")
-    k2.metric("📈 Beneficio", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
-    k3.metric("⚖️ Sharpe", f"{sharpe_avg:.2f}", help="Calidad del retorno (>1 es bueno)")
-    k4.metric("📉 Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help="Peor caída histórica")
+    # --- FILTRO DE FECHA ---
+    col_kpi, col_filter = st.columns([3, 1])
+    with col_filter:
+        default_date = datetime.now() - timedelta(days=180)
+        start_date = st.date_input("📅 Rendimiento desde:", value=default_date)
+        
+    # Filtrar Historial
+    hist_filtered = pd.DataFrame()
+    bench_filtered = pd.Series()
+    if not history_data.empty:
+        start_dt = pd.to_datetime(start_date).tz_localize(None)
+        hist_filtered = history_data[history_data.index >= start_dt]
+        if not benchmark_data.empty:
+            bench_filtered = benchmark_data[benchmark_data.index >= start_dt]
+
+    with col_kpi:
+        patrimonio = df_final['Valor Acciones'].sum()
+        ganancia = df_final['Ganancia'].sum()
+        inv_total = df_final['Dinero Invertido'].sum()
+        rent_total = (ganancia / inv_total * 100) if inv_total > 0 else 0
+        sharpe_avg = df_final['Sharpe'].mean()
+        
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("💰 Patrimonio", f"{patrimonio:,.2f} €", help="Valor total actual")
+        k2.metric("📈 Beneficio", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
+        k3.metric("⚖️ Sharpe", f"{sharpe_avg:.2f}", help="Calidad del retorno (>1 es bueno)")
+        k4.metric("📉 Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help="Peor caída en un año")
     
     st.divider()
     
     c1, c2 = st.columns([2, 1])
     with c1:
         st.subheader("🏁 Alpha vs Mercado")
-        if not history_data.empty and not benchmark_data.empty:
-            # Índice Sintético Cartera
-            my_hist = history_data.sum(axis=1)
-            # Alinear fechas
-            idx = my_hist.index.intersection(benchmark_data.index)
+        if not hist_filtered.empty and not bench_filtered.empty:
+            my_hist = hist_filtered.sum(axis=1)
+            idx = my_hist.index.intersection(bench_filtered.index)
             
-            if len(idx) > 10:
+            if len(idx) > 2:
                 my_s = my_hist.loc[idx]
-                spy_s = benchmark_data.loc[idx]
+                spy_s = bench_filtered.loc[idx]
                 
-                # Normalizar base 100
+                # Normalizar base 100 desde FECHA ELEGIDA
                 my_norm = my_s / my_s.iloc[0] * 100
                 spy_norm = spy_s / spy_s.iloc[0] * 100
                 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=my_norm.index, y=my_norm, name="Tú", line=dict(color='#00CC96', width=2)))
                 fig.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm, name="S&P 500", line=dict(color='gray', dash='dot')))
-                fig.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0))
+                fig.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True)
                 
                 alpha = my_norm.iloc[-1] - spy_norm.iloc[-1]
-                if alpha > 0: st.success(f"🚀 Ganas al mercado por **{alpha:.2f}%**")
-                else: st.warning(f"⚠️ Pierdes contra el mercado por **{alpha:.2f}%**")
-            else: st.info("Datos insuficientes para comparar.")
+                if alpha > 0: st.success(f"🚀 Desde {start_date.strftime('%d/%m')}, ganas al mercado por **{alpha:.2f}%**")
+                else: st.warning(f"⚠️ Desde {start_date.strftime('%d/%m')}, el mercado te gana por **{abs(alpha):.2f}%**")
+            else: st.info("Datos insuficientes en este rango.")
+        else: st.info("Sin datos históricos para este periodo.")
             
     with c2:
         st.subheader("Diversificación")
@@ -274,7 +284,7 @@ if pagina == "📊 Dashboard & Alpha":
         fig.update_layout(height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0))
         st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("📋 Detalle")
+    st.subheader("📋 Detalle de Activos")
     st.dataframe(df_final[['Nombre','Precio Actual','Peso %','Rentabilidad','RSI','Sharpe','Max Drawdown']].style.format({
         'Precio Actual':'{:.2f}€', 'Peso %':'{:.1f}%', 'Rentabilidad':'{:.2f}%', 'RSI':'{:.0f}', 'Sharpe':'{:.2f}', 'Max Drawdown':'{:.2f}%'
     }).background_gradient(subset=['Rentabilidad'], cmap='RdYlGn', vmin=-20, vmax=20), use_container_width=True)
@@ -292,7 +302,6 @@ elif pagina == "🤖 Asesor de Riesgos":
         msgs = []
         beta = 1.0
         
-        # Calculo Beta seguro
         if not history_data.empty and not benchmark_data.empty:
             try:
                 my_sum = history_data.sum(axis=1).pct_change().replace([np.inf, -np.inf], np.nan).dropna()
@@ -306,10 +315,9 @@ elif pagina == "🤖 Asesor de Riesgos":
             
         st.metric("Beta (Riesgo)", f"{beta:.2f}", help=">1: Más volátil que el mercado. <1: Más estable.")
         
-        if beta > 1.3: msgs.append(("🚨", "Tu cartera es **muy agresiva**. Considera comprar Bonos (TLT) u Oro (GLD)."))
+        if beta > 1.3: msgs.append(("🚨", "Tu cartera es **agresiva**. Considera comprar Bonos (TLT) u Oro (GLD)."))
         elif beta < 0.7: msgs.append(("🛡️", "Tu cartera es **defensiva**. Resistirás bien las crisis."))
         
-        # RSI
         over = df_final[df_final['RSI']>75]['Nombre'].tolist()
         under = df_final[df_final['RSI']<30]['Nombre'].tolist()
         if over: msgs.append(("🔴", f"Venta sugerida: **{', '.join(over)}** (Sobrecompra)."))
@@ -317,8 +325,7 @@ elif pagina == "🤖 Asesor de Riesgos":
         
         with st.chat_message("assistant", avatar="🤖"):
             st.write("Diagnóstico:")
-            for i, m in msgs:
-                st.write(f"{i} {m}")
+            for i, m in msgs: st.write(f"{i} {m}")
             if not msgs: st.write("✅ Cartera equilibrada.")
 
     with c2:
@@ -332,7 +339,7 @@ elif pagina == "🤖 Asesor de Riesgos":
         else: st.info("Faltan datos para correlaciones.")
 
 # ==============================================================================
-# 🔮 PÁGINA 3: MONTE CARLO (FIXED NAN)
+# 🔮 PÁGINA 3: MONTE CARLO (FIX NAN)
 # ==============================================================================
 elif pagina == "🔮 Monte Carlo":
     st.title("🔮 Simulación Futura")
@@ -342,25 +349,17 @@ elif pagina == "🔮 Monte Carlo":
     with c1:
         years = st.slider("Años", 1, 30, 10)
         
-        # Calculo parametros SEGURO
+        # Parámetros seguros
+        mu, sigma = 0.07, 0.15 # Defaults
         if not history_data.empty:
-            # Sumamos todo para tener la cartera total diaria
-            daily_series = history_data.sum(axis=1)
-            # Rellenar ceros iniciales si los hay
-            daily_series = daily_series.replace(0, np.nan).dropna()
-            
+            daily_series = history_data.sum(axis=1).replace(0, np.nan).dropna()
             if len(daily_series) > 10:
                 daily_ret = daily_series.pct_change().dropna()
                 mu = daily_ret.mean() * 252
                 sigma = daily_ret.std() * np.sqrt(252)
-            else:
-                mu, sigma = 0.07, 0.15 # Defaults si falla
-        else:
-            mu, sigma = 0.07, 0.15
-            
-        # Evitar Inf/NaN
+        
         if np.isnan(mu) or np.isinf(mu): mu = 0.07
-        if np.isnan(sigma) or np.isinf(sigma) or sigma == 0: sigma = 0.15
+        if np.isnan(sigma) or sigma == 0: sigma = 0.15
             
         st.metric("Retorno Histórico", f"{mu*100:.1f}%")
         st.metric("Volatilidad", f"{sigma*100:.1f}%")
@@ -372,7 +371,7 @@ elif pagina == "🔮 Monte Carlo":
         if run:
             dt = 1/252
             paths = []
-            for _ in range(50): # 50 simulaciones
+            for _ in range(50): 
                 p = [curr_val]
                 for _ in range(int(years*252)):
                     shock = np.random.normal(0,1)
@@ -403,23 +402,25 @@ elif pagina == "🔮 Monte Carlo":
         except: st.error("Sin noticias.")
 
 # ==============================================================================
-# ➕ PÁGINA 4: GESTIÓN
+# ➕ PÁGINA 4: GESTIÓN DE CARTERA (NUEVO SISTEMA)
 # ==============================================================================
-elif pagina == "➕ Gestión Activos":
-    st.title("➕ Gestión")
-    t1, t2 = st.tabs(["Añadir", "Borrar"])
+elif pagina == "➕ Gestión de Cartera":
+    st.title("➕ Gestión de Cartera")
     
-    with t1:
+    t_new, t_trade, t_edit = st.tabs(["🆕 Añadir Nuevo", "💰 Operar", "✏️ Editar"])
+    
+    # --- TAB 1: AÑADIR ---
+    with t_new:
         c1, c2 = st.columns(2)
         with c1:
-            q = st.text_input("Buscar (Nombre/ISIN)")
-            if st.button("🔍") and q:
+            q = st.text_input("Buscar Activo (Nombre/ISIN):", placeholder="Ej: Apple, Vanguard...")
+            if st.button("🔍 Buscar") and q:
                 r = search(q)
                 if 'quotes' in r: st.session_state['s'] = r['quotes']
             
             if 's' in st.session_state:
-                opts = {f"{x['symbol']} | {x.get('longname','')}" : x for x in st.session_state['s']}
-                sel = st.selectbox("Elegir:", list(opts.keys()))
+                opts = {f"{x['symbol']} | {x.get('longname','N/A')}" : x for x in st.session_state['s']}
+                sel = st.selectbox("Resultados:", list(opts.keys()))
                 st.session_state['sel_add'] = opts[sel]
         
         with c2:
@@ -430,20 +431,78 @@ elif pagina == "➕ Gestión Activos":
                     inf = yf.Ticker(t).history(period='1d')
                     if not inf.empty:
                         cp = inf['Close'].iloc[-1]
-                        st.metric(t, f"{cp:.2f}€")
-                        inv = st.number_input("Invertido (€)", 0.0)
-                        val = st.number_input("Valor (€)", 0.0)
-                        pl = st.selectbox("Broker", ["MyInvestor", "XTB", "TR", "Degiro"])
-                        if st.button("Guardar") and val>0:
-                            add_asset_db(t, a.get('longname', t), val/cp, inv/(val/cp), pl)
-                            st.success("Guardado"); time.sleep(1); st.rerun()
-                except: st.error("Error precio.")
+                        st.metric("Precio Mercado", f"{cp:.2f} €")
+                        
+                        with st.form("new_asset"):
+                            inv = st.number_input("Invertido (€)", min_value=0.0)
+                            val = st.number_input("Valor Actual (€)", min_value=0.0)
+                            pl = st.selectbox("Broker", ["MyInvestor", "XTB", "Trade Republic", "Degiro", "IBKR"])
+                            
+                            if st.form_submit_button("💾 Guardar") and val > 0:
+                                shares = val / cp
+                                avg_p = inv / shares if shares > 0 else 0
+                                add_asset_db(t, a.get('longname', t), shares, avg_p, pl)
+                                st.success(f"✅ {t} añadido.")
+                                time.sleep(1); st.rerun()
+                except: st.error("Error obteniendo precio.")
 
-    with t2:
+    # --- TAB 2: OPERAR ---
+    with t_trade:
+        if df_final.empty: st.warning("Añade activos primero.")
+        else:
+            c_sel, c_ops = st.columns([1, 2])
+            with c_sel:
+                nom = st.selectbox("Activo a Operar", df_final['Nombre'].unique())
+                row = df_final[df_final['Nombre'] == nom].iloc[0]
+                cur_shares = row['shares']
+                cur_avg = row['avg_price']
+                
+                st.info(f"Tienes **{cur_shares:.4f}** acciones a **{cur_avg:.2f}€** media.")
+
+            with c_ops:
+                live_price = row['Precio Actual']
+                st.metric("Precio Mercado", f"{live_price:.2f} €")
+                
+                op = st.radio("Tipo", ["🟢 Compra", "🔴 Venta"], horizontal=True)
+                amt = st.number_input("Importe (€)", min_value=0.0, step=50.0)
+                
+                if amt > 0:
+                    sh_imp = amt / live_price
+                    if "Compra" in op:
+                        new_sh = cur_shares + sh_imp
+                        new_inv = (cur_shares * cur_avg) + amt
+                        new_avg = new_inv / new_sh
+                        st.success(f"Comprarás {sh_imp:.4f} acciones. Nuevo Precio Medio: **{new_avg:.2f}€**")
+                        if st.button("✅ Confirmar Compra"):
+                            update_asset_db(int(row['id']), new_sh, new_avg)
+                            st.rerun()
+                    else:
+                        if amt > (cur_shares * live_price): st.error("No tienes tanto saldo.")
+                        else:
+                            new_sh = cur_shares - sh_imp
+                            st.warning(f"Venderás {sh_imp:.4f} acciones.")
+                            if st.button("🚨 Confirmar Venta"):
+                                if new_sh <= 0.001: delete_asset_db(int(row['id']))
+                                else: update_asset_db(int(row['id']), new_sh, cur_avg)
+                                st.rerun()
+
+    # --- TAB 3: EDITAR ---
+    with t_edit:
         if not df_final.empty:
-            d = st.selectbox("Borrar:", df_final['Nombre'])
-            if st.button("Eliminar"):
-                delete_asset_db(df_final[df_final['Nombre']==d].iloc[0]['id'])
+            ed = st.selectbox("Editar:", df_final['Nombre'], key='ed')
+            r_ed = df_final[df_final['Nombre']==ed].iloc[0]
+            
+            c1, c2, c3 = st.columns(3)
+            ns = c1.number_input("Acciones", value=float(r_ed['shares']), format="%.4f")
+            na = c2.number_input("Precio Medio", value=float(r_ed['avg_price']), format="%.4f")
+            
+            if c3.button("💾 Actualizar"):
+                update_asset_db(int(r_ed['id']), ns, na)
+                st.success("Hecho"); st.rerun()
+            
+            st.divider()
+            if st.button(f"🗑️ Borrar {ed}"):
+                delete_asset_db(int(r_ed['id']))
                 st.rerun()
 
 # ==============================================================================
