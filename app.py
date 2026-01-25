@@ -20,7 +20,10 @@ st.markdown("""
 <style>
     .metric-card {background-color: #f0f2f6; border-radius: 10px; padding: 15px; border: 1px solid #e0e0e0;}
     .stMetric {text-align: center;}
-    div[data-testid="stExpander"] div[role="button"] p {font-size: 1.1rem; font-weight: bold;}
+    /* Tooltip personalizado */
+    div[data-testid="stMetricLabel"] > div > div {
+        cursor: help;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -101,28 +104,39 @@ with st.sidebar:
         st.session_state['user'] = None
         st.rerun()
 
-# --- FUNCIONES MATEMÁTICAS AVANZADAS ---
+# --- FUNCIONES MATEMÁTICAS AVANZADAS (ROBUSTAS) ---
 def calculate_advanced_metrics(series):
-    """Calcula Sharpe, Volatilidad y Drawdown"""
-    returns = series.pct_change().dropna()
+    """Calcula Sharpe, Volatilidad y Drawdown de forma segura"""
+    # Limpieza de datos
+    clean_series = series.dropna()
+    if len(clean_series) < 2: return 0, 0, 0, 0
+    
+    returns = clean_series.pct_change().dropna()
     if returns.empty: return 0, 0, 0, 0
     
     # Retorno total
-    total_ret = (series.iloc[-1] / series.iloc[0]) - 1
+    try:
+        total_ret = (clean_series.iloc[-1] / clean_series.iloc[0]) - 1
+    except: total_ret = 0
     
     # Volatilidad Anual
     vol = returns.std() * np.sqrt(252)
+    if np.isnan(vol): vol = 0
     
     # Max Drawdown
     cum_returns = (1 + returns).cumprod()
     peak = cum_returns.cummax()
     drawdown = (cum_returns - peak) / peak
     max_dd = drawdown.min()
+    if np.isnan(max_dd): max_dd = 0
     
     # Sharpe Ratio (Risk Free Rate = 3%)
     rf = 0.03
-    excess_ret = (returns.mean() * 252) - rf
-    sharpe = excess_ret / vol if vol != 0 else 0
+    if vol != 0:
+        excess_ret = (returns.mean() * 252) - rf
+        sharpe = excess_ret / vol
+    else:
+        sharpe = 0
     
     return total_ret, vol, max_dd, sharpe
 
@@ -157,15 +171,19 @@ if not df_db.empty:
     tickers_api = tickers + ['SPY', 'GLD']
     
     try:
-        # Descarga masiva para velocidad
+        # Descarga masiva
         raw_data = yf.download(tickers_api, period="1y", progress=False)['Close']
+        
+        # --- CORRECCIÓN CRÍTICA DE ZONA HORARIA ---
+        # Eliminamos la zona horaria para poder comparar fechas sin error
+        raw_data.index = raw_data.index.tz_localize(None)
         
         # Separar Benchmark y Carteras
         if 'SPY' in raw_data.columns:
             benchmark_data = raw_data['SPY']
             history = raw_data.drop(columns=['SPY', 'GLD'], errors='ignore')
         else:
-            history = raw_data # Fallback
+            history = raw_data
             
         history_data = history
         
@@ -176,27 +194,36 @@ if not df_db.empty:
         
         for t in tickers:
             if t in history.columns:
-                s = history[t]
-                prices[t] = s.iloc[-1]
-                
-                # RSI
-                delta = s.diff()
-                up = delta.clip(lower=0)
-                down = -1 * delta.clip(upper=0)
-                ema_up = up.ewm(com=13, adjust=False).mean()
-                ema_down = down.ewm(com=13, adjust=False).mean()
-                rs = ema_up / ema_down
-                rsi_dict[t] = 100 - (100 / (1 + rs)).iloc[-1]
-                
-                # Métricas Pro
-                ret, vol, dd, sharpe = calculate_advanced_metrics(s)
-                metrics[t] = {'vol': vol, 'dd': dd, 'sharpe': sharpe}
+                s = history[t].dropna()
+                if not s.empty:
+                    prices[t] = s.iloc[-1]
+                    
+                    # RSI seguro
+                    if len(s) > 14:
+                        delta = s.diff()
+                        up = delta.clip(lower=0)
+                        down = -1 * delta.clip(upper=0)
+                        ema_up = up.ewm(com=13, adjust=False).mean()
+                        ema_down = down.ewm(com=13, adjust=False).mean()
+                        rs = ema_up / ema_down
+                        # Manejar división por cero
+                        rs = rs.fillna(0)
+                        rsi_val = 100 - (100 / (1 + rs)).iloc[-1]
+                        rsi_dict[t] = rsi_val
+                    else:
+                        rsi_dict[t] = 50
+                    
+                    # Métricas Pro
+                    ret, vol, dd, sharpe = calculate_advanced_metrics(s)
+                    metrics[t] = {'vol': vol, 'dd': dd, 'sharpe': sharpe}
+                else:
+                    prices[t] = 0; rsi_dict[t] = 50; metrics[t] = {'vol':0, 'dd':0, 'sharpe':0}
             else:
                 prices[t] = 0; rsi_dict[t] = 50; metrics[t] = {'vol':0, 'dd':0, 'sharpe':0}
         
         # Construir DataFrame Final
         df_db['Precio Actual'] = df_db['ticker'].map(prices)
-        df_db['RSI'] = df_db['ticker'].map(rsi_dict)
+        df_db['RSI'] = df_db['ticker'].map(rsi_dict).fillna(50)
         df_db['Volatilidad'] = df_db['ticker'].apply(lambda x: metrics[x]['vol']*100)
         df_db['Max Drawdown'] = df_db['ticker'].apply(lambda x: metrics[x]['dd']*100)
         df_db['Sharpe'] = df_db['ticker'].apply(lambda x: metrics[x]['sharpe'])
@@ -211,7 +238,7 @@ if not df_db.empty:
         
         df_final = df_db.rename(columns={'nombre': 'Nombre'})
         
-    except Exception as e: st.error(f"Error de Datos: {e}")
+    except Exception as e: st.error(f"Error procesando datos: {e}")
 
 # ==============================================================================
 # 📊 PÁGINA 1: DASHBOARD & ALPHA (Tu vs Mercado)
@@ -219,19 +246,35 @@ if not df_db.empty:
 if pagina == "📊 Dashboard & Alpha":
     st.title("📊 Control de Mando")
     
-    if df_final.empty: st.warning("Cartera vacía."); st.stop()
+    if df_final.empty: st.warning("Cartera vacía. Añade activos en el menú."); st.stop()
     
-    # 1. KPIs SUPERIORES
+    # 1. KPIs SUPERIORES CON TOOLTIPS DE AYUDA
     patrimonio = df_final['Valor Acciones'].sum()
     ganancia = df_final['Ganancia'].sum()
     rent_total = (ganancia / df_final['Dinero Invertido'].sum() * 100)
     sharpe_medio = df_final['Sharpe'].mean()
     
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("💰 Patrimonio Neto", f"{patrimonio:,.2f} €")
-    k2.metric("📈 P&L Total", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
-    k3.metric("⚖️ Sharpe Ratio", f"{sharpe_medio:.2f}", delta="Excelente" if sharpe_medio > 1 else "Normal", help="Rentabilidad ajustada al riesgo.")
-    k4.metric("📉 Max Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help="La peor caída individual de un activo en el último año.")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("💰 Patrimonio Neto", f"{patrimonio:,.2f} €", help="Valor total de todos tus activos a precio de mercado hoy.")
+    c2.metric("📈 P&L Total", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%", help="Beneficio o Pérdida total (Profit & Loss) desde que compraste.")
+    
+    # Tooltips explicativos
+    help_sharpe = """
+    💡 **Sharpe Ratio**: Mide la calidad de tu inversión.
+    • > 1.0: ¡Excelente! (Ganas mucho para el riesgo que corres).
+    • 0 - 1.0: Normal.
+    • Negativo: Malo (Estás perdiendo dinero o asumiendo demasiado riesgo).
+    """
+    c3.metric("⚖️ Sharpe Ratio", f"{sharpe_medio:.2f}", 
+              delta="Bueno" if sharpe_medio > 1 else "Normal", 
+              help=help_sharpe)
+    
+    help_dd = """
+    📉 **Max Drawdown**: La 'Prueba de Dolor'.
+    Indica cuál ha sido la peor caída histórica de tus activos desde su punto más alto en el último año.
+    Un -23% significa que en el peor momento, el valor cayó un 23% desde la cima.
+    """
+    c4.metric("📉 Max Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help=help_dd)
     
     st.divider()
     
@@ -239,26 +282,44 @@ if pagina == "📊 Dashboard & Alpha":
     c_chart, c_pie = st.columns([2, 1])
     
     with c_chart:
-        st.subheader("🏁 Tu Cartera vs. S&P 500")
+        st.subheader("🏁 Tu Cartera vs. Mercado (S&P 500)")
         if not history_data.empty and not benchmark_data.empty:
-            # Crear índice sintético de tu cartera
-            my_portfolio_hist = history_data.sum(axis=1)
-            # Normalizar a base 100 para comparar
-            my_norm = my_portfolio_hist / my_portfolio_hist.iloc[0] * 100
-            spy_norm = benchmark_data / benchmark_data.iloc[0] * 100
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=my_norm.index, y=my_norm, name="Tu Cartera", line=dict(color='#00CC96', width=3)))
-            fig.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm, name="S&P 500", line=dict(color='#EF553B', dash='dot')))
-            fig.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=0, b=0), height=350)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Calcular Alpha
-            my_perf = my_norm.iloc[-1] - 100
-            spy_perf = spy_norm.iloc[-1] - 100
-            alpha = my_perf - spy_perf
-            if alpha > 0: st.success(f"🚀 ¡Estás batiendo al mercado por un {alpha:.2f}%!")
-            else: st.warning(f"⚠️ Estás {alpha:.2f}% por debajo del mercado.")
+            try:
+                # Crear índice sintético de tu cartera
+                my_portfolio_hist = history_data.sum(axis=1)
+                
+                # Alinear fechas (Intersección)
+                common_dates = my_portfolio_hist.index.intersection(benchmark_data.index)
+                
+                if len(common_dates) > 5:
+                    my_pf_aligned = my_portfolio_hist.loc[common_dates]
+                    spy_aligned = benchmark_data.loc[common_dates]
+                    
+                    # Normalizar a base 100 para comparar
+                    my_norm = my_pf_aligned / my_pf_aligned.iloc[0] * 100
+                    spy_norm = spy_aligned / spy_aligned.iloc[0] * 100
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=my_norm.index, y=my_norm, name="Tu Cartera", line=dict(color='#00CC96', width=3)))
+                    fig.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm, name="S&P 500", line=dict(color='#EF553B', dash='dot')))
+                    fig.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=0, b=0), height=350)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Calcular Alpha
+                    my_perf = my_norm.iloc[-1] - 100
+                    spy_perf = spy_norm.iloc[-1] - 100
+                    alpha = my_perf - spy_perf
+                    
+                    if np.isnan(alpha):
+                        st.info("Calculando Alpha...")
+                    elif alpha > 0: 
+                        st.success(f"🚀 ¡Bates al mercado! Alpha: **+{alpha:.2f}%** (Ganas más que el índice).")
+                    else: 
+                        st.warning(f"⚠️ Estás **{alpha:.2f}%** por debajo del mercado.")
+                else:
+                    st.info("No hay suficientes días coincidentes de datos para comparar.")
+            except Exception as e:
+                st.info(f"Gráfico en construcción (Faltan datos históricos): {e}")
             
     with c_pie:
         st.subheader("Diversificación")
@@ -268,6 +329,7 @@ if pagina == "📊 Dashboard & Alpha":
 
     # 3. TABLA DETALLADA CON HEATMAP
     st.subheader("📋 Análisis de Activos")
+    st.caption("Colores: Verde = Bien / Rojo = Mal o Riesgo Alto")
     st.dataframe(df_final[['Nombre', 'Precio Actual', 'Peso %', 'Rentabilidad', 'RSI', 'Sharpe', 'Max Drawdown']].style.format({
         'Precio Actual': '{:.2f}€', 'Peso %': '{:.1f}%', 'Rentabilidad': '{:+.2f}%',
         'RSI': '{:.0f}', 'Sharpe': '{:.2f}', 'Max Drawdown': '{:.2f}%'
@@ -282,29 +344,47 @@ elif pagina == "🤖 Asesor de Riesgos (IA)":
     
     if df_final.empty: st.stop()
     
-    c_chat, c_matrix = st.columns([1, 1])
+    col_chat, col_risk = st.columns([1, 1])
     
-    with c_chat:
+    with col_chat:
         st.markdown("### 💬 Diagnóstico en Tiempo Real")
         
         msgs = []
+        beta = 1.0 # Default
         
         # 1. CÁLCULO DE BETA (RIESGO VS MERCADO)
         if not history_data.empty and not benchmark_data.empty:
-            my_ret = history_data.sum(axis=1).pct_change().dropna()
-            spy_ret = benchmark_data.pct_change().dropna()
+            try:
+                my_hist_sum = history_data.sum(axis=1)
+                common_idx = my_hist_sum.index.intersection(benchmark_data.index)
+                
+                if len(common_idx) > 10:
+                    my_ret = my_hist_sum.loc[common_idx].pct_change().dropna()
+                    spy_ret = benchmark_data.loc[common_idx].pct_change().dropna()
+                    
+                    # Alinear de nuevo tras pct_change
+                    idx_final = my_ret.index.intersection(spy_ret.index)
+                    
+                    if len(idx_final) > 5:
+                        cov = my_ret[idx_final].cov(spy_ret[idx_final])
+                        var = spy_ret[idx_final].var()
+                        if var != 0:
+                            beta = cov / var
+                        else: beta = 1.0
+            except: beta = 1.0 # Fallback
             
-            # Alinear fechas
-            idx = my_ret.index.intersection(spy_ret.index)
-            cov = my_ret[idx].cov(spy_ret[idx])
-            var = spy_ret[idx].var()
-            beta = cov / var
+            help_beta = """
+            📊 **Beta de Cartera**: Sensibilidad al mercado.
+            • Beta = 1.0: Tu cartera se mueve igual que el S&P 500.
+            • Beta > 1.0 (Ej: 1.5): Si el mercado sube 1%, tú subes 1.5% (y al revés). ¡Agresivo!
+            • Beta < 1.0 (Ej: 0.5): Si el mercado cae 10%, tú solo caes 5%. ¡Defensivo!
+            """
             
-            st.metric("Beta de Cartera", f"{beta:.2f}", help=">1: Más volátil que el mercado. <1: Más estable.")
+            st.metric("Beta de Cartera", f"{beta:.2f}", help=help_beta)
             
             if beta > 1.2:
-                msgs.append(("🚨", f"**Cartera muy agresiva (Beta {beta:.2f}):** Tienes mucho riesgo de mercado. Si la bolsa cae, tú caerás más."))
-                msgs.append(("🛡️", "**Consejo de Cobertura:** Deberías añadir **Bonos (TLT)** u **Oro (GLD)** para reducir este riesgo."))
+                msgs.append(("🚨", f"**Cartera muy agresiva (Beta {beta:.2f}):** Tienes mucho riesgo de mercado. Si la bolsa cae, tú caerás más fuerte."))
+                msgs.append(("🛡️", "**Consejo de Cobertura:** Deberías añadir activos descorrelacionados como **Bonos (TLT)** o **Oro (GLD)**."))
             elif beta < 0.8:
                 msgs.append(("✅", f"**Cartera defensiva (Beta {beta:.2f}):** Estás bien protegido contra caídas del mercado."))
         
@@ -312,12 +392,12 @@ elif pagina == "🤖 Asesor de Riesgos (IA)":
         over = df_final[df_final['RSI'] > 75]['Nombre'].tolist()
         under = df_final[df_final['RSI'] < 30]['Nombre'].tolist()
         
-        if over: msgs.append(("🔴", f"**Venta Táctica:** {', '.join(over)} están en sobrecompra extrema. Considera tomar beneficios."))
-        if under: msgs.append(("🟢", f"**Compra Táctica:** {', '.join(under)} han sido castigados excesivamente. Oportunidad de rebote."))
+        if over: msgs.append(("🔴", f"**Venta Táctica:** {', '.join(over)} están en sobrecompra extrema (>75 RSI). Históricamente suelen corregir."))
+        if under: msgs.append(("🟢", f"**Compra Táctica:** {', '.join(under)} están en sobreventa (<30 RSI). Oportunidad de rebote."))
         
         # 3. RENDERIZAR CHAT
         with st.chat_message("assistant", avatar="🤖"):
-            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. He analizado matemáticamente tu cartera.")
+            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. Aquí tienes mi análisis de riesgos:")
         
         for icon, txt in msgs:
             with st.chat_message("assistant", avatar=icon):
@@ -327,16 +407,17 @@ elif pagina == "🤖 Asesor de Riesgos (IA)":
             with st.chat_message("assistant", avatar="✨"):
                 st.write("Tu cartera está perfectamente equilibrada. No se detectan anomalías graves.")
 
-    with c_matrix:
-        st.markdown("### 🕸️ Matriz de Correlación")
-        st.caption("Los cuadros **Rojos** indican activos que se mueven igual (Mala diversificación). Busca **Azules**.")
-        if len(tickers) > 1:
+    with col_risk:
+        st.markdown("### 🕸️ Mapa de Correlaciones")
+        st.info("Busca colores **Azules** para diversificar. Los **Rojos** significan que se mueven igual.")
+        if len(tickers) > 1 and not history_data.empty:
             corr = history_data.corr()
             fig, ax = plt.subplots(figsize=(6, 5))
             sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt=".2f", ax=ax)
             st.pyplot(fig)
+            
         else:
-            st.info("Necesitas 2+ activos para ver correlaciones.")
+            st.info("Necesitas 2+ activos con histórico suficiente para ver correlaciones.")
 
 # ==============================================================================
 # 🔮 PÁGINA 3: MONTE CARLO & FUTURO (SIMULACIÓN PRO)
@@ -355,13 +436,17 @@ elif pagina == "🔮 Monte Carlo & Futuro":
         sims = 50 # Número de escenarios
         
         # Datos base
-        daily_ret = history_data.sum(axis=1).pct_change().dropna()
-        mu = daily_ret.mean() * 252
-        sigma = daily_ret.std() * np.sqrt(252)
+        if not history_data.empty:
+            daily_ret = history_data.sum(axis=1).pct_change().dropna()
+            mu = daily_ret.mean() * 252
+            sigma = daily_ret.std() * np.sqrt(252)
+        else:
+            mu = 0.07; sigma = 0.15 # Defaults
+            
         curr_val = df_final['Valor Acciones'].sum()
         
-        st.metric("Retorno Histórico", f"{mu*100:.1f}%")
-        st.metric("Volatilidad Anual", f"{sigma*100:.1f}%")
+        st.metric("Retorno Histórico", f"{mu*100:.1f}%", help="Lo que ha rendido tu cartera anualmente en el pasado.")
+        st.metric("Volatilidad Anual", f"{sigma*100:.1f}%", help="Cuánto oscila el valor de tu cartera.")
         
         run_sim = st.button("🎲 Ejecutar 50 Escenarios")
 
