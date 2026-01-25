@@ -58,7 +58,7 @@ if not st.session_state['user']:
                     "provider": "google",
                     "options": {
                         # AQUI PONEMOS TU URL DE STREAMLIT CLOUD
-                        "redirect_to": "https://gestor-patrimonio-et7epkxmavhzsqbj6oxouc.streamlit.app" 
+                        "redirect_to": "https://carterapro.streamlit.app" 
                     }
                 })
                 st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
