@@ -581,7 +581,7 @@ with col_main:
                 if c3.button("Actualizar"): update_asset_db(int(re['id']), ns, na); st.rerun()
                 if st.button("Borrar"): delete_asset_db(int(re['id'])); st.rerun()
 
-    elif pagina == "💬 Asesor AI":
+elif pagina == "💬 Asesor AI":
         st.title("💬 Asesor Financiero Personal")
         
         # 1. Preparar Contexto
@@ -590,9 +590,9 @@ with col_main:
         if not df_final.empty:
             ctx += "Cartera de Inversiones: "
             for idx, r in df_final.iterrows():
-                # CORRECCIÓN AQUÍ: Usamos 'Valor Acciones' en lugar de 'Valor'
+                # CORRECCIÓN AQUÍ: Usamos nombres de columnas seguros
                 nombre = r['Nombre']
-                valor = r['Valor Acciones'] # <--- ESTO ES LO QUE FALLABA
+                valor = r['Valor Acciones'] 
                 ganancia = r['Ganancia']
                 rentabilidad = r['Rentabilidad']
                 ctx += f"[{nombre}: Valor {valor:.2f}€, P&L {ganancia:.2f}€ ({rentabilidad:.2f}%)]. "
@@ -612,29 +612,16 @@ with col_main:
             if "GROQ_API_KEY" in st.secrets:
                 with st.chat_message("assistant"):
                     try:
-                        # Cliente Groq
                         client = openai.OpenAI(
                             base_url="https://api.groq.com/openai/v1", 
                             api_key=st.secrets["GROQ_API_KEY"]
                         )
                         
-                        # Prompt del Sistema
-                        system_prompt = f"""
-                        Eres un asesor financiero experto y sarcástico llamado 'CarteraPro Bot'.
-                        
-                        DATOS ACTUALES DEL USUARIO:
-                        {ctx}
-                        
-                        INSTRUCCIONES:
-                        1. Responde preguntas sobre su patrimonio usando SOLO los datos de arriba.
-                        2. Si pierde dinero, sé duro o sarcástico. Si gana, felicítale.
-                        3. Sé breve y directo. No inventes datos que no estén en el contexto.
-                        """
-
                         stream = client.chat.completions.create(
-                            model="llama3-70b-8192",
+                            # --- CAMBIO IMPORTANTE: MODELO NUEVO ---
+                            model="llama-3.3-70b-versatile", 
                             messages=[
-                                {"role": "system", "content": system_prompt}, 
+                                {"role": "system", "content": f"Eres un asesor financiero experto y sarcástico. Datos: {ctx}. Responde breve y útil."}, 
                                 *st.session_state.messages
                             ],
                             stream=True
