@@ -24,6 +24,11 @@ st.markdown("""
     div[data-testid="stMetricLabel"] > div > div {cursor: help;}
     div[role="tablist"] {justify-content: center;}
     .big-font {font-size:24px !important; font-weight: bold; color: #2E7D32;}
+    
+    /* Animación suave al cargar */
+    .stApp {
+        transition: all 0.3s ease-in-out;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,7 +66,6 @@ if not st.session_state['user']:
     with c2:
         st.title("🏦 Carterapro Ultra")
         st.caption("Gestión Patrimonial Personal")
-        
         if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
             try:
                 data = supabase.auth.sign_in_with_oauth({
@@ -70,7 +74,6 @@ if not st.session_state['user']:
                 })
                 st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
             except Exception as e: st.error(f"Error: {e}")
-        
         st.divider()
         email = st.text_input("Email")
         password = st.text_input("Contraseña", type="password")
@@ -130,49 +133,69 @@ def sanitize_input(text):
     if not isinstance(text, str): return ""
     return re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
 
-# --- FUNCIONES BASE DE DATOS (INVERSIONES) ---
-def get_assets_db():
-    try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', user.id).execute().data)
+# --- FUNCIONES CACHEADAS (LA CLAVE DE LA VELOCIDAD) ---
+
+@st.cache_data(ttl=60) # Cachear datos de DB por 60 segundos
+def get_assets_db(uid):
+    try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
     except: return pd.DataFrame()
 
-def add_asset_db(t, n, s, p, pl):
-    supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
-
-def update_asset_db(asset_id, shares, avg_price):
-    supabase.table('assets').update({"shares": shares, "avg_price": avg_price}).eq('id', asset_id).execute()
-
-def delete_asset_db(id_del):
-    supabase.table('assets').delete().eq('id', id_del).execute()
-
-# --- FUNCIONES BASE DE DATOS (LIQUIDEZ SIMPLIFICADA) ---
-def get_liquidity_db():
+@st.cache_data(ttl=60) # Cachear datos de DB por 60 segundos
+def get_liquidity_db(uid):
     """Obtiene la liquidez. Si no existe, crea una entrada 'Principal' a 0"""
     try:
-        response = supabase.table('liquidity').select("*").eq('user_id', user.id).execute()
+        response = supabase.table('liquidity').select("*").eq('user_id', uid).execute()
         data = response.data
         if data:
             return pd.DataFrame(data)
         else:
             # Autocrear cartera de liquidez si no existe
-            new_data = {"user_id": user.id, "name": "Principal", "amount": 0.0}
+            new_data = {"user_id": uid, "name": "Principal", "amount": 0.0}
             supabase.table('liquidity').insert(new_data).execute()
-            # Retornar el dataframe con la fila creada
             return pd.DataFrame([new_data]) 
-    except Exception as e:
+    except:
         return pd.DataFrame(columns=['id', 'user_id', 'name', 'amount', 'created_at'])
+
+@st.cache_data(ttl=300) # Cachear Mercado por 5 minutos (Lo más lento)
+def get_market_data(tickers):
+    if not tickers: return pd.DataFrame()
+    try:
+        tickers_api = list(set(tickers + ['SPY', 'GLD'])) 
+        data = yf.download(tickers_api, period="1y", progress=False)['Close']
+        data.index = data.index.tz_localize(None)
+        data = data.fillna(method='ffill').fillna(method='bfill')
+        return data
+    except: return pd.DataFrame()
+
+# --- FUNCIONES DE ESCRITURA (LIMPIAN CACHÉ) ---
+def clear_cache():
+    st.cache_data.clear()
+
+def add_asset_db(t, n, s, p, pl):
+    supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
+    clear_cache()
+
+def update_asset_db(asset_id, shares, avg_price):
+    supabase.table('assets').update({"shares": shares, "avg_price": avg_price}).eq('id', asset_id).execute()
+    clear_cache()
+
+def delete_asset_db(id_del):
+    supabase.table('assets').delete().eq('id', id_del).execute()
+    clear_cache()
 
 def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
+    clear_cache()
 
-# --- CARGA Y PROCESAMIENTO DE DATOS ---
-df_assets = get_assets_db()
-df_cash = get_liquidity_db()
+# --- PRE-PROCESAMIENTO RÁPIDO ---
+df_assets = get_assets_db(user.id)
+df_cash = get_liquidity_db(user.id)
 
-# Procesar Liquidez Única
+# Procesar Liquidez
 if not df_cash.empty:
-    cash_row = df_cash.iloc[0] # Siempre usamos la primera fila como "La Liquidez"
+    cash_row = df_cash.iloc[0]
     total_liquidez = cash_row['amount']
-    cash_id = cash_row.get('id', None) # ID para updates
+    cash_id = cash_row.get('id', None)
 else:
     total_liquidez = 0.0
     cash_id = None
@@ -184,12 +207,9 @@ benchmark_data = pd.Series()
 
 if not df_assets.empty:
     tickers = df_assets['ticker'].unique().tolist()
-    tickers_api = list(set(tickers + ['SPY', 'GLD'])) 
-    try:
-        data_raw = yf.download(tickers_api, period="1y", progress=False)['Close']
-        data_raw.index = data_raw.index.tz_localize(None)
-        data_raw = data_raw.fillna(method='ffill').fillna(method='bfill')
-        
+    data_raw = get_market_data(tickers) # Usamos la versión cacheada
+    
+    if not data_raw.empty:
         if 'SPY' in data_raw.columns:
             benchmark_data = data_raw['SPY']
             history = data_raw.drop(columns=['SPY', 'GLD'], errors='ignore')
@@ -226,7 +246,6 @@ if not df_assets.empty:
         total_inv = df_assets['Valor Acciones'].sum()
         df_assets['Peso %'] = df_assets.apply(lambda r: (r['Valor Acciones']/total_inv*100) if total_inv>0 else 0, axis=1)
         df_final = df_assets.rename(columns={'nombre': 'Nombre'})
-    except Exception as e: st.error(f"Error Mercado: {e}")
 
 # Totales Globales
 total_inversiones = df_final['Valor Acciones'].sum() if not df_final.empty else 0
@@ -271,9 +290,10 @@ if pagina == "📊 Dashboard & Alpha":
                 norm_b = b_filt.loc[common] / b_filt.loc[common].iloc[0] * 100
                 
                 fig = go.Figure()
+                # Animación suave en el gráfico
                 fig.add_trace(go.Scatter(x=norm_h.index, y=norm_h, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
                 fig.add_trace(go.Scatter(x=norm_b.index, y=norm_b, name="S&P 500", line=dict(color='gray', dash='dot')))
-                fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+                fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified", transition_duration=500)
                 st.plotly_chart(fig, use_container_width=True)
             else: st.info("Datos insuficientes.")
         else: st.info("Añade inversiones para ver el gráfico.")
@@ -292,7 +312,6 @@ if pagina == "📊 Dashboard & Alpha":
 elif pagina == "💰 Liquidez (Cash)":
     st.title("💰 Mi Liquidez")
     
-    # 1. MOSTRAR SALDO GIGANTE
     st.markdown(f"""
     <div style="text-align:center; padding: 40px; background-color: #e8f5e9; border-radius: 15px; margin-bottom: 30px;">
         <h3 style="color:#2e7d32; margin:0;">Saldo Total Disponible</h3>
@@ -300,39 +319,32 @@ elif pagina == "💰 Liquidez (Cash)":
     </div>
     """, unsafe_allow_html=True)
 
-    # 2. BOTONES DE ACCIÓN RÁPIDA
     c_in, c_out = st.columns(2)
-    
     with c_in:
         with st.expander("📥 AÑADIR DINERO (Ingreso)", expanded=True):
             add_amt = st.number_input("Cantidad a ingresar (€)", min_value=0.0, step=50.0, key="add_cash")
             if st.button("Confirmar Ingreso", type="primary", use_container_width=True):
                 if add_amt > 0:
-                    # Usamos el cash_id detectado al inicio (si no hay, get_liquidity_db lo creó)
-                    # Forzamos recarga del ID por seguridad
-                    current_db = get_liquidity_db()
+                    current_db = get_liquidity_db(user.id)
                     cid = current_db.iloc[0]['id']
                     cbal = current_db.iloc[0]['amount']
-                    
                     update_liquidity_balance(int(cid), cbal + add_amt)
                     st.success(f"Has añadido {add_amt} €")
-                    time.sleep(1); st.rerun()
+                    time.sleep(0.5); st.rerun()
 
     with c_out:
         with st.expander("📤 RETIRAR DINERO (Gasto)", expanded=True):
             sub_amt = st.number_input("Cantidad a retirar (€)", min_value=0.0, step=50.0, key="sub_cash")
             if st.button("Confirmar Retirada", type="secondary", use_container_width=True):
                 if sub_amt > 0:
-                    current_db = get_liquidity_db()
+                    current_db = get_liquidity_db(user.id)
                     cid = current_db.iloc[0]['id']
                     cbal = current_db.iloc[0]['amount']
-                    
-                    if sub_amt > cbal:
-                        st.error("No tienes suficiente saldo.")
+                    if sub_amt > cbal: st.error("No tienes suficiente saldo.")
                     else:
                         update_liquidity_balance(int(cid), cbal - sub_amt)
                         st.success(f"Has retirado {sub_amt} €")
-                        time.sleep(1); st.rerun()
+                        time.sleep(0.5); st.rerun()
 
 # ==============================================================================
 # ➕ PÁGINA 3: GESTIÓN DE INVERSIONES (CONECTADA A LIQUIDEZ)
@@ -342,7 +354,6 @@ elif pagina == "➕ Gestión de Inversiones":
     
     t_new, t_trade, t_edit = st.tabs(["🆕 Añadir Nuevo", "💰 Operar (Compra/Venta)", "✏️ Editar"])
     
-    # --- TAB 1: AÑADIR (Solo registro inicial, no resta liquidez) ---
     with t_new:
         st.caption("Usa esto para registrar activos que YA tienes de antes. No afectará a tu liquidez.")
         c1, c2 = st.columns(2)
@@ -372,10 +383,9 @@ elif pagina == "➕ Gestión de Inversiones":
                                 shares = val / cp
                                 avg_p = inv / shares if shares > 0 else 0
                                 add_asset_db(t, a.get('longname', t), shares, avg_p, pl)
-                                st.success("Registrado."); time.sleep(1); st.rerun()
+                                st.success("Registrado."); time.sleep(0.5); st.rerun()
                 except: st.error("Error precio.")
 
-    # --- TAB 2: OPERAR (CONECTADO A LIQUIDEZ) ---
     with t_trade:
         if df_final.empty: st.warning("Añade inversiones primero.")
         else:
@@ -394,44 +404,30 @@ elif pagina == "➕ Gestión de Inversiones":
                 op = st.radio("Acción", ["🟢 Compra", "🔴 Venta"], horizontal=True)
                 amt = st.number_input("Importe Operación (€)", 0.0, step=50.0)
                 
-                # Checkbox de liquidez siempre activo y visible
                 st.markdown(f"**Saldo Liquidez:** {total_liquidez:,.2f} €")
                 
                 if amt > 0:
                     sh_imp = amt / live_price
-                    
                     if "Compra" in op:
-                        if amt > total_liquidez:
-                            st.error("❌ No tienes suficiente liquidez para esta compra.")
+                        if amt > total_liquidez: st.error("❌ No tienes suficiente liquidez.")
                         else:
                             st.success(f"Comprarás {sh_imp:.4f} accs. Se restarán {amt}€ de liquidez.")
                             if st.button("✅ Confirmar Compra"):
-                                # 1. Actualizar Activo
                                 new_sh = cur_shares + sh_imp
                                 new_avg = ((cur_shares*cur_avg)+amt)/new_sh
                                 update_asset_db(int(row['id']), new_sh, new_avg)
-                                
-                                # 2. Restar Liquidez (Usamos el cash_id global)
-                                if cash_id:
-                                    update_liquidity_balance(int(cash_id), total_liquidez - amt)
-                                    st.toast(f"Restados {amt}€ de liquidez")
-                                st.success("Compra realizada."); time.sleep(1.5); st.rerun()
-                                
-                    else: # VENTA
+                                if cash_id: update_liquidity_balance(int(cash_id), total_liquidez - amt)
+                                st.success("Compra realizada."); time.sleep(0.5); st.rerun()
+                    else: 
                         if amt > (cur_shares * live_price): st.error("No tienes tantas acciones.")
                         else:
                             st.warning(f"Venderás {sh_imp:.4f} acciones. Se añadirán {amt}€ a liquidez.")
                             if st.button("🚨 Confirmar Venta"):
-                                # 1. Actualizar Activo
                                 new_sh = cur_shares - sh_imp
                                 if new_sh <= 0.001: delete_asset_db(int(row['id']))
                                 else: update_asset_db(int(row['id']), new_sh, cur_avg)
-                                
-                                # 2. Sumar Liquidez
-                                if cash_id:
-                                    update_liquidity_balance(int(cash_id), total_liquidez + amt)
-                                    st.toast(f"Añadidos {amt}€ a liquidez")
-                                st.success("Venta realizada."); time.sleep(1.5); st.rerun()
+                                if cash_id: update_liquidity_balance(int(cash_id), total_liquidez + amt)
+                                st.success("Venta realizada."); time.sleep(0.5); st.rerun()
 
     with t_edit:
         if not df_final.empty:
@@ -471,25 +467,23 @@ elif pagina == "🤖 Asesor de Riesgos":
         
         st.metric("Beta Inversora", f"{beta:.2f}", help="Sensibilidad vs S&P 500")
         
-        # Análisis de Liquidez en el Asesor
         pct_cash = (total_liquidez / patrimonio_total * 100) if patrimonio_total > 0 else 0
-        if pct_cash > 40: msgs.append(("ℹ️", f"Tienes mucha liquidez (**{pct_cash:.1f}%**). La inflación te está afectando. Considera invertir más."))
-        elif pct_cash < 5: msgs.append(("🚨", f"Tienes poca liquidez (**{pct_cash:.1f}%**). Peligroso ante imprevistos."))
-        else: msgs.append(("✅", f"Colchón de liquidez saludable (**{pct_cash:.1f}%**)."))
+        if pct_cash > 40: msgs.append(("ℹ️", f"Mucha liquidez (**{pct_cash:.1f}%**). Ojo inflación."))
+        elif pct_cash < 5: msgs.append(("🚨", f"Poca liquidez (**{pct_cash:.1f}%**). Riesgo imprevistos."))
+        else: msgs.append(("✅", f"Liquidez saludable (**{pct_cash:.1f}%**)."))
 
-        if beta > 1.3: msgs.append(("🚨", "Cartera de inversión muy agresiva."))
+        if beta > 1.3: msgs.append(("🚨", "Inversión agresiva."))
         
         with st.chat_message("assistant", avatar="🤖"):
             for i, m in msgs: st.write(f"{i} {m}")
 
     with c2:
-        st.write("### 🕸️ Correlaciones (Inversiones)")
+        st.write("### 🕸️ Correlaciones")
         if len(tickers)>1 and not history_data.empty:
             corr = history_data.corr()
             fig, ax = plt.subplots(figsize=(5,4))
             sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
             st.pyplot(fig)
-            
         else: st.info("Faltan datos.")
 
 # ==============================================================================
@@ -531,8 +525,9 @@ elif pagina == "🔮 Monte Carlo":
             for p in paths: fig.add_trace(go.Scatter(x=x, y=p, mode='lines', line=dict(color='rgba(0,100,200,0.1)'), showlegend=False))
             avg_path = np.mean(paths, axis=0)
             fig.add_trace(go.Scatter(x=x, y=avg_path, mode='lines', name='Media', line=dict(color='blue', width=3)))
+            fig.update_layout(transition_duration=500)
             st.plotly_chart(fig, use_container_width=True)
-            st.info(f"Tus inversiones podrían valer **{np.mean([p[-1] for p in paths]):,.0f} €** (sin contar liquidez).")
+            st.info(f"Escenario Medio: **{np.mean([p[-1] for p in paths]):,.0f} €**")
 
     st.divider()
     st.subheader("📰 Noticias")
