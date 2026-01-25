@@ -585,10 +585,19 @@ with col_main:
         st.title("💬 Asesor Financiero Personal")
         
         # 1. Preparar Contexto
-        ctx = f"Liquidez: {total_liquidez:.2f}€. "
+        ctx = f"Liquidez disponible: {total_liquidez:.2f}€. "
+        
         if not df_final.empty:
+            ctx += "Cartera de Inversiones: "
             for idx, r in df_final.iterrows():
-                ctx += f"{r['Nombre']}: {r['Valor']:.2f}€ (P&L: {r['Ganancia']:.2f}€). "
+                # CORRECCIÓN AQUÍ: Usamos 'Valor Acciones' en lugar de 'Valor'
+                nombre = r['Nombre']
+                valor = r['Valor Acciones'] # <--- ESTO ES LO QUE FALLABA
+                ganancia = r['Ganancia']
+                rentabilidad = r['Rentabilidad']
+                ctx += f"[{nombre}: Valor {valor:.2f}€, P&L {ganancia:.2f}€ ({rentabilidad:.2f}%)]. "
+        else:
+            ctx += "El usuario no tiene inversiones activas actualmente."
         
         # 2. Historial
         for msg in st.session_state.messages:
@@ -599,20 +608,43 @@ with col_main:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
 
-            if HAS_GROQ:
+            # Comprobar si hay clave de Groq configurada
+            if "GROQ_API_KEY" in st.secrets:
                 with st.chat_message("assistant"):
                     try:
-                        client = openai.OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
+                        # Cliente Groq
+                        client = openai.OpenAI(
+                            base_url="https://api.groq.com/openai/v1", 
+                            api_key=st.secrets["GROQ_API_KEY"]
+                        )
+                        
+                        # Prompt del Sistema
+                        system_prompt = f"""
+                        Eres un asesor financiero experto y sarcástico llamado 'CarteraPro Bot'.
+                        
+                        DATOS ACTUALES DEL USUARIO:
+                        {ctx}
+                        
+                        INSTRUCCIONES:
+                        1. Responde preguntas sobre su patrimonio usando SOLO los datos de arriba.
+                        2. Si pierde dinero, sé duro o sarcástico. Si gana, felicítale.
+                        3. Sé breve y directo. No inventes datos que no estén en el contexto.
+                        """
+
                         stream = client.chat.completions.create(
                             model="llama3-70b-8192",
-                            messages=[{"role": "system", "content": f"Eres un asesor experto. Datos del usuario: {ctx}"}, *st.session_state.messages],
+                            messages=[
+                                {"role": "system", "content": system_prompt}, 
+                                *st.session_state.messages
+                            ],
                             stream=True
                         )
                         response = st.write_stream(stream)
                         st.session_state.messages.append({"role": "assistant", "content": response})
-                    except Exception as e: st.error(f"Error AI: {e}")
+                    except Exception as e: 
+                        st.error(f"Error AI: {e}")
             else:
-                st.warning("Configura GROQ_API_KEY en secrets.toml para usar el chat.")
+                st.warning("⚠️ Falta la clave GROQ_API_KEY en secrets.toml")
 
     elif pagina == "🤖 Asesor de Riesgos":
         st.title("🤖 IA & Riesgos")
