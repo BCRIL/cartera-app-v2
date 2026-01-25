@@ -10,16 +10,26 @@ import time
 import seaborn as sns
 import matplotlib.pyplot as plt
 from textblob import TextBlob
+from datetime import datetime, timedelta
 
 # --- CONFIGURACIÓN GLOBAL ---
-st.set_page_config(page_title="Gestor Patrimonial Pro", layout="wide", page_icon="🏦")
+st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦")
+
+# --- ESTILOS CSS PERSONALIZADOS (MODO PRO) ---
+st.markdown("""
+<style>
+    .metric-card {background-color: #f0f2f6; border-radius: 10px; padding: 15px; border: 1px solid #e0e0e0;}
+    .stMetric {text-align: center;}
+    div[data-testid="stExpander"] div[role="button"] p {font-size: 1.1rem; font-weight: bold;}
+</style>
+""", unsafe_allow_html=True)
 
 # --- CONEXIÓN SUPABASE ---
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 except:
-    st.error("Error: Faltan los secretos de Supabase.")
+    st.error("❌ Error Crítico: Faltan los secretos de Supabase.")
     st.stop()
 
 @st.cache_resource
@@ -46,8 +56,9 @@ if "code" in query_params and not st.session_state['user']:
 if not st.session_state['user']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        st.title("🔐 Carterapro Login")
-        # Botón Google
+        st.title("🏦 Carterapro Ultra")
+        st.caption("Sistema de Gestión Patrimonial Institucional")
+        
         if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
             try:
                 data = supabase.auth.sign_in_with_oauth({
@@ -58,7 +69,6 @@ if not st.session_state['user']:
             except Exception as e: st.error(f"Error: {e}")
         
         st.divider()
-        # Login Email
         email = st.text_input("Email")
         password = st.text_input("Contraseña", type="password")
         if st.button("Entrar"):
@@ -71,397 +81,479 @@ if not st.session_state['user']:
 
 user = st.session_state['user']
 
-# --- SIDEBAR ---
+# --- SIDEBAR PROFESIONAL ---
 with st.sidebar:
-    st.image(user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'), width=50)
-    st.write(f"Hola, **{user.user_metadata.get('full_name', 'Inversor')}**")
+    st.image(user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'), width=60)
+    st.markdown(f"### {user.user_metadata.get('full_name', 'Inversor')}")
+    st.caption("Licencia Pro Activa ✅")
+    
+    pagina = st.radio("Navegación", [
+        "📊 Dashboard & Alpha", 
+        "🤖 Asesor de Riesgos (IA)", 
+        "🔮 Monte Carlo & Futuro",
+        "➕ Gestión de Activos", 
+        "⚖️ Rebalanceo Táctico"
+    ])
+    
+    st.divider()
     if st.button("Cerrar Sesión"):
         supabase.auth.sign_out()
         st.session_state['user'] = None
         st.rerun()
-    st.divider()
-    pagina = st.radio("Menú Principal", [
-        "🤖 Asesor IA en Vivo", 
-        "📊 Dashboard", 
-        "🔮 Proyecciones & Noticias",
-        "➕ Añadir Activos", 
-        "⚖️ Rebalanceo"
-    ])
 
-# --- FUNCIONES FINANCIERAS & UTILIDADES ---
-def calculate_rsi(data, window=14):
-    """Calcula el RSI para detectar sobrecompra/sobreventa"""
-    delta = data.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+# --- FUNCIONES MATEMÁTICAS AVANZADAS ---
+def calculate_advanced_metrics(series):
+    """Calcula Sharpe, Volatilidad y Drawdown"""
+    returns = series.pct_change().dropna()
+    if returns.empty: return 0, 0, 0, 0
+    
+    # Retorno total
+    total_ret = (series.iloc[-1] / series.iloc[0]) - 1
+    
+    # Volatilidad Anual
+    vol = returns.std() * np.sqrt(252)
+    
+    # Max Drawdown
+    cum_returns = (1 + returns).cumprod()
+    peak = cum_returns.cummax()
+    drawdown = (cum_returns - peak) / peak
+    max_dd = drawdown.min()
+    
+    # Sharpe Ratio (Risk Free Rate = 3%)
+    rf = 0.03
+    excess_ret = (returns.mean() * 252) - rf
+    sharpe = excess_ret / vol if vol != 0 else 0
+    
+    return total_ret, vol, max_dd, sharpe
 
 def get_sentiment(text):
-    """Analiza sentimiento de noticias"""
-    analysis = TextBlob(text)
-    if analysis.sentiment.polarity > 0.1: return "🟢 Positivo"
-    elif analysis.sentiment.polarity < -0.1: return "🔴 Negativo"
-    else: return "⚪ Neutral"
+    blob = TextBlob(text)
+    if blob.sentiment.polarity > 0.1: return "🟢"
+    elif blob.sentiment.polarity < -0.1: return "🔴"
+    else: return "⚪"
 
-# --- CARGA DE DATOS CENTRALIZADA ---
+# --- CARGA DE DATOS OPTIMIZADA ---
 def get_assets_db():
     resp = supabase.table('assets').select("*").eq('user_id', user.id).execute()
     return pd.DataFrame(resp.data)
 
 def add_asset_db(ticker, nombre, shares, price, platform):
-    supabase.table('assets').insert({"user_id": user.id, "ticker": ticker, "nombre": nombre, "shares": shares, "avg_price": price, "platform": platform}).execute()
+    supabase.table('assets').insert({
+        "user_id": user.id, "ticker": ticker, "nombre": nombre, 
+        "shares": shares, "avg_price": price, "platform": platform
+    }).execute()
 
 def delete_asset_db(id_del):
     supabase.table('assets').delete().eq('id', id_del).execute()
 
 df_db = get_assets_db()
 df_final = pd.DataFrame()
-history_data = pd.DataFrame() # Para correlaciones y gráficos
+history_data = pd.DataFrame()
+benchmark_data = pd.Series()
 
 if not df_db.empty:
     tickers = df_db['ticker'].unique().tolist()
+    # Añadimos SPY (S&P 500) y GLD (Oro) para comparar
+    tickers_api = tickers + ['SPY', 'GLD']
+    
     try:
-        # Descargamos 1 año de historia para todos los cálculos
-        history = yf.download(tickers, period="1y", progress=False)['Close']
+        # Descarga masiva para velocidad
+        raw_data = yf.download(tickers_api, period="1y", progress=False)['Close']
         
-        # Ajuste por si solo hay 1 activo (yfinance devuelve Series en vez de DF)
-        if len(tickers) == 1: 
-            history = pd.DataFrame({tickers[0]: history})
-        
+        # Separar Benchmark y Carteras
+        if 'SPY' in raw_data.columns:
+            benchmark_data = raw_data['SPY']
+            history = raw_data.drop(columns=['SPY', 'GLD'], errors='ignore')
+        else:
+            history = raw_data # Fallback
+            
         history_data = history
         
-        current_prices = {}
-        rsi_values = {}
-        volatility = {}
-        yearly_return = {}
+        # Procesar métricas individuales
+        metrics = {}
+        prices = {}
+        rsi_dict = {}
         
         for t in tickers:
             if t in history.columns:
-                series = history[t]
-                
-                # Datos actuales
-                current_prices[t] = series.iloc[-1]
+                s = history[t]
+                prices[t] = s.iloc[-1]
                 
                 # RSI
-                rsi_vals = calculate_rsi(series)
-                rsi_values[t] = rsi_vals.iloc[-1]
+                delta = s.diff()
+                up = delta.clip(lower=0)
+                down = -1 * delta.clip(upper=0)
+                ema_up = up.ewm(com=13, adjust=False).mean()
+                ema_down = down.ewm(com=13, adjust=False).mean()
+                rs = ema_up / ema_down
+                rsi_dict[t] = 100 - (100 / (1 + rs)).iloc[-1]
                 
-                # Volatilidad & Retorno (Para proyecciones)
-                returns = series.pct_change()
-                volatility[t] = returns.std() * np.sqrt(252) * 100
-                yearly_return[t] = returns.mean() * 252 * 100
+                # Métricas Pro
+                ret, vol, dd, sharpe = calculate_advanced_metrics(s)
+                metrics[t] = {'vol': vol, 'dd': dd, 'sharpe': sharpe}
             else:
-                current_prices[t] = 0
-                rsi_values[t] = 50
-                volatility[t] = 0
-                yearly_return[t] = 0
-                
-    except Exception as e: st.error(f"Error descargando datos de mercado: {e}")
-
-    # Enriquecer DataFrame
-    df_db['Precio Actual'] = df_db['ticker'].map(current_prices).fillna(0)
-    df_db['RSI'] = df_db['ticker'].map(rsi_values).fillna(50)
-    df_db['Volatilidad'] = df_db['ticker'].map(volatility).fillna(0)
-    df_db['Retorno Esperado'] = df_db['ticker'].map(yearly_return).fillna(0)
-    
-    df_db['Valor Acciones'] = df_db['shares'] * df_db['Precio Actual']
-    df_db['Dinero Invertido'] = df_db['shares'] * df_db['avg_price']
-    df_db['Ganancia'] = df_db['Valor Acciones'] - df_db['Dinero Invertido']
-    df_db['Rentabilidad'] = (df_db['Ganancia'] / df_db['Dinero Invertido'] * 100).fillna(0)
-    
-    # Calcular Peso %
-    total_patrimonio = df_db['Valor Acciones'].sum()
-    df_db['Peso %'] = (df_db['Valor Acciones'] / total_patrimonio * 100).fillna(0)
-    
-    df_final = df_db.rename(columns={'nombre': 'Nombre'})
+                prices[t] = 0; rsi_dict[t] = 50; metrics[t] = {'vol':0, 'dd':0, 'sharpe':0}
+        
+        # Construir DataFrame Final
+        df_db['Precio Actual'] = df_db['ticker'].map(prices)
+        df_db['RSI'] = df_db['ticker'].map(rsi_dict)
+        df_db['Volatilidad'] = df_db['ticker'].apply(lambda x: metrics[x]['vol']*100)
+        df_db['Max Drawdown'] = df_db['ticker'].apply(lambda x: metrics[x]['dd']*100)
+        df_db['Sharpe'] = df_db['ticker'].apply(lambda x: metrics[x]['sharpe'])
+        
+        df_db['Valor Acciones'] = df_db['shares'] * df_db['Precio Actual']
+        df_db['Dinero Invertido'] = df_db['shares'] * df_db['avg_price']
+        df_db['Ganancia'] = df_db['Valor Acciones'] - df_db['Dinero Invertido']
+        df_db['Rentabilidad'] = (df_db['Ganancia'] / df_db['Dinero Invertido'] * 100).fillna(0)
+        
+        total = df_db['Valor Acciones'].sum()
+        df_db['Peso %'] = (df_db['Valor Acciones'] / total * 100).fillna(0)
+        
+        df_final = df_db.rename(columns={'nombre': 'Nombre'})
+        
+    except Exception as e: st.error(f"Error de Datos: {e}")
 
 # ==============================================================================
-# 🤖 PÁGINA 1: ASESOR IA EN VIVO (ACTUALIZADO CON HEDGING)
+# 📊 PÁGINA 1: DASHBOARD & ALPHA (Tu vs Mercado)
 # ==============================================================================
-if pagina == "🤖 Asesor IA en Vivo":
-    st.title("🤖 Tu Asistente Financiero")
+if pagina == "📊 Dashboard & Alpha":
+    st.title("📊 Control de Mando")
     
-    if df_final.empty:
-        st.warning("Necesito datos para pensar. Ve a 'Añadir Activos' primero.")
-    else:
-        # --- 1. LÓGICA INTERNA DE CARTERA ---
-        alertas_graves = []
-        consejos_compra = []
-        consejos_venta = []
-        estrategia_rotacion = []
-
-        # Concentración
-        max_peso = df_final['Peso %'].max()
-        if max_peso > 35:
-            asset_max = df_final.loc[df_final['Peso %'].idxmax(), 'Nombre']
-            alertas_graves.append(f"⚠️ **Riesgo Alto:** Estás muy expuesto a **{asset_max}** ({max_peso:.1f}%). Si cae, sufres. Diversifica.")
-
-        # RSI (Timing)
-        for _, row in df_final.iterrows():
-            if row['RSI'] > 75:
-                consejos_venta.append(f"🔴 **{row['Nombre']}** está caro (RSI {row['RSI']:.0f}). Podría corregir.")
-            elif row['RSI'] < 30:
-                consejos_compra.append(f"🟢 **{row['Nombre']}** ha bajado mucho (RSI {row['RSI']:.0f}). Oportunidad de entrada.")
-
-        # --- 2. LÓGICA DE MERCADO (NUEVO: ROTACIÓN Y COBERTURA) ---
-        # Analizamos activos externos para ver qué le falta a la cartera
-        benchmarks = {
-            'SPY': 'S&P 500 (Mercado)',
-            'GLD': 'Oro (Refugio)',
-            'TLT': 'Bonos USA (Defensivo)',
-            'XLE': 'Energía (Inflación)',
-            'XLP': 'Consumo Básico (Estabilidad)'
-        }
-        
-        with st.spinner("Analizando mercado global para sugerirte coberturas..."):
-            try:
-                # Descargar datos de benchmarks
-                bench_data = yf.download(list(benchmarks.keys()), period="1y", progress=False)['Close']
-                
-                # Crear índice sintético de TU cartera (promedio ponderado simple)
-                my_portfolio_returns = history_data.pct_change().mean(axis=1)
-                
-                # Calcular correlaciones de tu cartera con los benchmarks
-                bench_returns = bench_data.pct_change()
-                correlations = bench_returns.corrwith(my_portfolio_returns)
-                
-                # Analizar Beta (Sensibilidad al mercado)
-                if 'SPY' in correlations:
-                    beta_proxy = correlations['SPY']
-                    if beta_proxy > 0.85:
-                        alertas_graves.append(f"⚠️ **Cartera Agresiva:** Tu cartera se mueve casi igual que la bolsa (Corr: {beta_proxy:.2f}). En caídas sufrirás.")
-                        
-                        # Buscar el mejor activo para proteger (Correlación más baja o negativa)
-                        best_hedge = correlations.idxmin()
-                        hedge_val = correlations.min()
-                        hedge_name = benchmarks.get(best_hedge, best_hedge)
-                        
-                        estrategia_rotacion.append(f"🛡️ **Consejo Defensivo:** Para no notar tanto los cambios, añade **{hedge_name} ({best_hedge})**. Su correlación contigo es baja ({hedge_val:.2f}), así que cuando tu cartera baje, esto debería aguantar o subir.")
-                    
-                    elif beta_proxy < 0.3:
-                        estrategia_rotacion.append("ℹ️ **Cartera Defensiva:** Tu cartera ya es muy estable y se mueve poco con el mercado.")
-                
-            except Exception as e:
-                # Fallo silencioso en benchmarks para no romper la app
-                print(f"Error benchmark: {e}")
-
-        # --- CHAT UI ---
-        with st.chat_message("assistant", avatar="🤖"):
-            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. He analizado tus activos y el mercado global.")
-        
-        if alertas_graves:
-            with st.chat_message("assistant", avatar="🚨"):
-                for a in alertas_graves: st.error(a)
-        
-        # MOSTRAR ESTRATEGIA DE ROTACIÓN (LO NUEVO)
-        if estrategia_rotacion:
-            with st.chat_message("assistant", avatar="🛡️"):
-                st.write("**Estrategia de Rotación sugerida:**")
-                for e in estrategia_rotacion: st.info(e)
-                
-        if consejos_compra or consejos_venta:
-            with st.chat_message("assistant", avatar="💰"):
-                st.write("**Movimientos Tácticos en tu cartera:**")
-                for c in consejos_compra: st.markdown(c)
-                for v in consejos_venta: st.markdown(v)
-        
-        if not alertas_graves and not consejos_compra and not consejos_venta:
-             with st.chat_message("assistant", avatar="✅"):
-                st.write("Todo parece en orden. Tu cartera está equilibrada.")
-
-        st.divider()
-        
-        # --- MAPA DE CORRELACIONES ---
-        st.subheader("🕸️ Diversificación Real")
-        with st.expander("Ver Mapa de Calor", expanded=True):
-            if not history_data.empty and len(tickers) > 1:
-                corr = history_data.corr()
-                fig, ax = plt.subplots(figsize=(8, 5))
-                sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
-                st.pyplot(fig)
-                
-            else:
-                st.info("Añade al menos 2 activos para ver correlaciones.")
-
-# ==============================================================================
-# 📊 PÁGINA 2: DASHBOARD GENERAL
-# ==============================================================================
-elif pagina == "📊 Dashboard":
-    st.title("📊 Visión Global")
-    if df_final.empty: st.stop()
+    if df_final.empty: st.warning("Cartera vacía."); st.stop()
     
+    # 1. KPIs SUPERIORES
     patrimonio = df_final['Valor Acciones'].sum()
     ganancia = df_final['Ganancia'].sum()
-    volatilidad_media = df_final['Volatilidad'].mean()
+    rent_total = (ganancia / df_final['Dinero Invertido'].sum() * 100)
+    sharpe_medio = df_final['Sharpe'].mean()
     
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Patrimonio Total", f"{patrimonio:,.2f} €")
-    k2.metric("Ganancia Total", f"{ganancia:,.2f} €", f"{(ganancia/patrimonio*100):.2f}%")
-    k3.metric("Riesgo (Volatilidad)", f"{volatilidad_media:.2f}%")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("💰 Patrimonio Neto", f"{patrimonio:,.2f} €")
+    k2.metric("📈 P&L Total", f"{ganancia:+,.2f} €", f"{rent_total:+.2f}%")
+    k3.metric("⚖️ Sharpe Ratio", f"{sharpe_medio:.2f}", delta="Excelente" if sharpe_medio > 1 else "Normal", help="Rentabilidad ajustada al riesgo.")
+    k4.metric("📉 Max Drawdown", f"{df_final['Max Drawdown'].min():.2f}%", help="La peor caída individual de un activo en el último año.")
     
-    c1, c2 = st.columns([2,1])
-    with c1:
-        # Treemap
-        fig = px.treemap(df_final, path=['platform', 'Nombre'], values='Valor Acciones', 
-                         color='Rentabilidad', color_continuous_scale='RdYlGn', color_continuous_midpoint=0)
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        # Tabla resumen
-        st.dataframe(df_final[['Nombre', 'Precio Actual', 'RSI', 'Peso %']].style.format({
-            'Precio Actual': '{:.2f}€', 'RSI': '{:.0f}', 'Peso %': '{:.1f}%'
-        }).background_gradient(subset=['RSI'], cmap='coolwarm'), use_container_width=True, height=400)
-
-# ==============================================================================
-# 🔮 PÁGINA 3: PROYECCIONES & NOTICIAS
-# ==============================================================================
-elif pagina == "🔮 Proyecciones & Noticias":
-    st.title("🔮 Futuro y Noticias")
-    if df_final.empty: st.warning("Faltan activos."); st.stop()
+    st.divider()
     
-    tab_proj, tab_news = st.tabs(["📈 Proyección Patrimonial", "📰 Noticias con IA"])
+    # 2. GRÁFICO COMPARATIVO: TU CARTERA VS S&P 500
+    c_chart, c_pie = st.columns([2, 1])
     
-    with tab_proj:
-        st.subheader("El poder del interés compuesto")
-        years = st.slider("Años vista", 1, 30, 10)
-        avg_ret = df_final['Retorno Esperado'].mean() / 100
-        if avg_ret == 0: avg_ret = 0.07 # Asumir 7% si no hay datos
-        
-        start_val = df_final['Valor Acciones'].sum()
-        end_val = start_val * (1 + avg_ret)**years
-        
-        c1, c2 = st.columns(2)
-        c1.metric("Valor Hoy", f"{start_val:,.0f} €")
-        c2.metric(f"Valor en {years} años (@{avg_ret*100:.1f}%)", f"{end_val:,.0f} €", delta=f"+{end_val-start_val:,.0f} €")
-        
-        # Gráfico
-        x = list(range(years+1))
-        y = [start_val * (1 + avg_ret)**i for i in x]
-        fig = px.line(x=x, y=y, labels={'x':'Años', 'y':'Euros'}, title="Crecimiento Estimado")
-        st.plotly_chart(fig, use_container_width=True)
-        
-    with tab_news:
-        st.subheader("Análisis de Sentimiento (Yahoo Finance + TextBlob)")
-        sel_asset = st.selectbox("Elige activo:", df_final['ticker'].unique())
-        if st.button("Analizar Noticias"):
-            with st.spinner("Leyendo noticias..."):
-                try:
-                    news = yf.Ticker(sel_asset).news
-                    if not news: st.info("No hay noticias recientes.")
-                    for n in news[:5]:
-                        tit = n.get('title','')
-                        sent = get_sentiment(tit)
-                        with st.expander(f"{sent} | {tit}"):
-                            st.write(f"Fuente: {n.get('publisher','')}")
-                            st.markdown(f"[Leer más]({n.get('link','')})")
-                except: st.error("Error cargando noticias.")
-
-# ==============================================================================
-# ➕ PÁGINA 4: AÑADIR ACTIVOS
-# ==============================================================================
-elif pagina == "➕ Añadir Activos":
-    st.title("➕ Añadir Inversión")
-    c_s, c_c = st.columns(2)
-    with c_s:
-        query = st.text_input("Buscar Activo (ISIN/Nombre):")
-        if st.button("Buscar") and query:
-            try:
-                res = search(query)
-                if 'quotes' in res: st.session_state['res'] = res['quotes']
-            except: pass
-        
-        if 'res' in st.session_state and st.session_state['res']:
-            opts = {f"{x['symbol']} - {x.get('longname','')}" : x for x in st.session_state['res']}
-            sel = st.selectbox("Resultados:", list(opts.keys()))
-            st.session_state['sel_asset'] = opts[sel]
-
-    with c_c:
-        if 'sel_asset' in st.session_state:
-            asset = st.session_state['sel_asset']
-            sym = asset['symbol']
-            try:
-                # Intentar bajar precio actual
-                hist = yf.Ticker(sym).history(period='1d')
-                if not hist.empty:
-                    curr_price = hist['Close'].iloc[-1]
-                    st.metric(f"Precio {sym}", f"{curr_price:.2f}€")
-                    
-                    invested = st.number_input("Dinero Invertido (€)", 0.0)
-                    curr_val = st.number_input("Valor Actual (€)", 0.0)
-                    plat = st.selectbox("Plataforma", ["MyInvestor", "XTB", "Degiro", "TR", "Banco"])
-                    
-                    if st.button("Guardar Activo") and curr_val > 0:
-                        shares = curr_val / curr_price
-                        avg = invested / shares if shares > 0 else 0
-                        add_asset_db(sym, asset.get('longname', sym), shares, avg, plat)
-                        st.success("Guardado!")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.error("No pude obtener precio de mercado. Intenta otro activo.")
-            except: st.error("Error técnico al obtener precio.")
+    with c_chart:
+        st.subheader("🏁 Tu Cartera vs. S&P 500")
+        if not history_data.empty and not benchmark_data.empty:
+            # Crear índice sintético de tu cartera
+            my_portfolio_hist = history_data.sum(axis=1)
+            # Normalizar a base 100 para comparar
+            my_norm = my_portfolio_hist / my_portfolio_hist.iloc[0] * 100
+            spy_norm = benchmark_data / benchmark_data.iloc[0] * 100
             
-    if not df_final.empty:
-        st.divider()
-        borrar = st.selectbox("Eliminar activo:", df_final['Nombre'])
-        if st.button("Borrar Activo"):
-            bid = df_final[df_final['Nombre']==borrar].iloc[0]['id']
-            delete_asset_db(bid)
-            st.rerun()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=my_norm.index, y=my_norm, name="Tu Cartera", line=dict(color='#00CC96', width=3)))
+            fig.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm, name="S&P 500", line=dict(color='#EF553B', dash='dot')))
+            fig.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=0, b=0), height=350)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Calcular Alpha
+            my_perf = my_norm.iloc[-1] - 100
+            spy_perf = spy_norm.iloc[-1] - 100
+            alpha = my_perf - spy_perf
+            if alpha > 0: st.success(f"🚀 ¡Estás batiendo al mercado por un {alpha:.2f}%!")
+            else: st.warning(f"⚠️ Estás {alpha:.2f}% por debajo del mercado.")
+            
+    with c_pie:
+        st.subheader("Diversificación")
+        fig_pie = px.pie(df_final, values='Valor Acciones', names='Nombre', hole=0.6, color_discrete_sequence=px.colors.qualitative.Prism)
+        fig_pie.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    # 3. TABLA DETALLADA CON HEATMAP
+    st.subheader("📋 Análisis de Activos")
+    st.dataframe(df_final[['Nombre', 'Precio Actual', 'Peso %', 'Rentabilidad', 'RSI', 'Sharpe', 'Max Drawdown']].style.format({
+        'Precio Actual': '{:.2f}€', 'Peso %': '{:.1f}%', 'Rentabilidad': '{:+.2f}%',
+        'RSI': '{:.0f}', 'Sharpe': '{:.2f}', 'Max Drawdown': '{:.2f}%'
+    }).background_gradient(subset=['Rentabilidad'], cmap='RdYlGn', vmin=-20, vmax=20)
+      .background_gradient(subset=['RSI'], cmap='coolwarm', vmin=30, vmax=70), use_container_width=True)
 
 # ==============================================================================
-# ⚖️ PÁGINA 5: REBALANCEO
+# 🤖 PÁGINA 2: ASESOR DE RIESGOS (IA + HEDGING)
 # ==============================================================================
-elif pagina == "⚖️ Rebalanceo":
-    st.title("⚖️ Rebalanceo de Cartera")
+elif pagina == "🤖 Asesor de Riesgos (IA)":
+    st.title("🤖 Asesor de Inteligencia Financiera")
+    
     if df_final.empty: st.stop()
     
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("Definir Objetivos")
-        plazo = st.number_input("Meses para el objetivo", 1, 24, 12)
+    c_chat, c_matrix = st.columns([1, 1])
+    
+    with c_chat:
+        st.markdown("### 💬 Diagnóstico en Tiempo Real")
         
-        weights = {}
-        total_w = 0
-        saved = st.session_state.get('estrategia', {})
+        msgs = []
         
-        for i, row in df_final.iterrows():
-            def_w = int(row['Peso %'])
-            w = st.number_input(f"{row['Nombre']} (Actual: {def_w}%)", 0, 100, def_w, key=f"w_{i}")
-            weights[row['Nombre']] = w
-            total_w += w
+        # 1. CÁLCULO DE BETA (RIESGO VS MERCADO)
+        if not history_data.empty and not benchmark_data.empty:
+            my_ret = history_data.sum(axis=1).pct_change().dropna()
+            spy_ret = benchmark_data.pct_change().dropna()
             
-        st.metric("Total Peso Objetivo", f"{total_w}%", delta="Debe ser 100" if total_w!=100 else "Perfecto")
-        
-        if total_w == 100 and st.button("Calcular Plan"):
-            patrimonio = df_final['Valor Acciones'].sum()
-            max_cap = 0
-            # Algoritmo DCA inteligente: Llenar el cubo que está más vacío
-            for _, row in df_final.iterrows():
-                tgt_money = (weights[row['Nombre']]/100)
-                if tgt_money > 0:
-                    implied = row['Valor Acciones'] / tgt_money
-                    if implied > max_cap: max_cap = implied
+            # Alinear fechas
+            idx = my_ret.index.intersection(spy_ret.index)
+            cov = my_ret[idx].cov(spy_ret[idx])
+            var = spy_ret[idx].var()
+            beta = cov / var
             
-            target_pf = max(max_cap, patrimonio)
-            monthly = (target_pf - patrimonio) / plazo
-            st.session_state['plan'] = {'monthly': monthly, 'weights': weights, 'target': target_pf}
+            st.metric("Beta de Cartera", f"{beta:.2f}", help=">1: Más volátil que el mercado. <1: Más estable.")
+            
+            if beta > 1.2:
+                msgs.append(("🚨", f"**Cartera muy agresiva (Beta {beta:.2f}):** Tienes mucho riesgo de mercado. Si la bolsa cae, tú caerás más."))
+                msgs.append(("🛡️", "**Consejo de Cobertura:** Deberías añadir **Bonos (TLT)** u **Oro (GLD)** para reducir este riesgo."))
+            elif beta < 0.8:
+                msgs.append(("✅", f"**Cartera defensiva (Beta {beta:.2f}):** Estás bien protegido contra caídas del mercado."))
+        
+        # 2. RSI Y MOMENTUM
+        over = df_final[df_final['RSI'] > 75]['Nombre'].tolist()
+        under = df_final[df_final['RSI'] < 30]['Nombre'].tolist()
+        
+        if over: msgs.append(("🔴", f"**Venta Táctica:** {', '.join(over)} están en sobrecompra extrema. Considera tomar beneficios."))
+        if under: msgs.append(("🟢", f"**Compra Táctica:** {', '.join(under)} han sido castigados excesivamente. Oportunidad de rebote."))
+        
+        # 3. RENDERIZAR CHAT
+        with st.chat_message("assistant", avatar="🤖"):
+            st.write(f"Hola {user.user_metadata.get('full_name','Inversor')}. He analizado matemáticamente tu cartera.")
+        
+        for icon, txt in msgs:
+            with st.chat_message("assistant", avatar=icon):
+                st.markdown(txt)
+                
+        if not msgs:
+            with st.chat_message("assistant", avatar="✨"):
+                st.write("Tu cartera está perfectamente equilibrada. No se detectan anomalías graves.")
 
-    with col2:
-        if 'plan' in st.session_state:
-            plan = st.session_state['plan']
-            st.subheader("📋 Tu Plan de Aportaciones")
-            c1, c2 = st.columns(2)
-            c1.metric("Aportación Mensual", f"{plan['monthly']:,.2f} €")
-            c2.metric("Objetivo Total", f"{plan['target']:,.2f} €")
+    with c_matrix:
+        st.markdown("### 🕸️ Matriz de Correlación")
+        st.caption("Los cuadros **Rojos** indican activos que se mueven igual (Mala diversificación). Busca **Azules**.")
+        if len(tickers) > 1:
+            corr = history_data.corr()
+            fig, ax = plt.subplots(figsize=(6, 5))
+            sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt=".2f", ax=ax)
+            st.pyplot(fig)
+        else:
+            st.info("Necesitas 2+ activos para ver correlaciones.")
+
+# ==============================================================================
+# 🔮 PÁGINA 3: MONTE CARLO & FUTURO (SIMULACIÓN PRO)
+# ==============================================================================
+elif pagina == "🔮 Monte Carlo & Futuro":
+    st.title("🔮 Laboratorio de Futuro")
+    st.caption("Simulación Estocástica (Monte Carlo)")
+    
+    if df_final.empty: st.stop()
+    
+    c_conf, c_res = st.columns([1, 2])
+    
+    with c_conf:
+        st.subheader("⚙️ Parámetros")
+        years = st.slider("Horizonte (Años)", 1, 30, 10)
+        sims = 50 # Número de escenarios
+        
+        # Datos base
+        daily_ret = history_data.sum(axis=1).pct_change().dropna()
+        mu = daily_ret.mean() * 252
+        sigma = daily_ret.std() * np.sqrt(252)
+        curr_val = df_final['Valor Acciones'].sum()
+        
+        st.metric("Retorno Histórico", f"{mu*100:.1f}%")
+        st.metric("Volatilidad Anual", f"{sigma*100:.1f}%")
+        
+        run_sim = st.button("🎲 Ejecutar 50 Escenarios")
+
+    with c_res:
+        if run_sim:
+            with st.spinner("Calculando futuros alternativos..."):
+                dt = 1/252
+                paths = []
+                for _ in range(sims):
+                    price = [curr_val]
+                    for _ in range(int(years*252)):
+                        # Fórmula de Movimiento Browniano Geométrico
+                        shock = np.random.normal(0, 1)
+                        p = price[-1] * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * shock)
+                        price.append(p)
+                    paths.append(price)
+                
+                # Gráfico Spaghetti
+                fig = go.Figure()
+                x_axis = np.linspace(0, years, len(paths[0]))
+                
+                # Escenarios tenues
+                for p in paths:
+                    fig.add_trace(go.Scatter(x=x_axis, y=p, mode='lines', line=dict(color='rgba(0,150,255,0.1)', width=1), showlegend=False))
+                
+                # Media
+                avg_path = np.mean(paths, axis=0)
+                fig.add_trace(go.Scatter(x=x_axis, y=avg_path, name='Escenario Medio', line=dict(color='blue', width=3)))
+                
+                fig.update_layout(title="Proyección Probabilística de tu Riqueza", yaxis_title="Euros", xaxis_title="Años")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                final_vals = [p[-1] for p in paths]
+                p10 = np.percentile(final_vals, 10)
+                p90 = np.percentile(final_vals, 90)
+                
+                st.success(f"En el escenario promedio tendrás **{avg_path[-1]:,.0f}€**.")
+                st.info(f"Rango probable (80% certeza): entre **{p10:,.0f}€** y **{p90:,.0f}€**.")
+
+    st.divider()
+    st.subheader("📰 Noticias Inteligentes (Sentimiento IA)")
+    sel_news = st.selectbox("Noticias de:", df_final['ticker'].unique())
+    if st.button("Analizar Noticias"):
+        try:
+            news = yf.Ticker(sel_news).news
+            cols = st.columns(3)
+            for i, n in enumerate(news[:3]):
+                tit = n.get('title', '')
+                icon = get_sentiment(tit)
+                with cols[i]:
+                    st.markdown(f"### {icon}")
+                    st.write(f"**{tit}**")
+                    st.caption(n.get('publisher', ''))
+                    st.markdown(f"[Leer]({n.get('link','')})")
+        except: st.error("No hay noticias recientes.")
+
+# ==============================================================================
+# ➕ PÁGINA 4: GESTIÓN DE ACTIVOS (MEJORADO)
+# ==============================================================================
+elif pagina == "➕ Gestión de Activos":
+    st.title("➕ Gestión de Cartera")
+    
+    tab_add, tab_del = st.tabs(["Añadir Nuevo", "Inventario Actual"])
+    
+    with tab_add:
+        c1, c2 = st.columns(2)
+        with c1:
+            search_txt = st.text_input("🔍 Buscar Activo (Nombre/ISIN):")
+            if search_txt:
+                try:
+                    res = search(search_txt)
+                    if 'quotes' in res:
+                        opts = {f"{x['symbol']} | {x.get('longname','N/A')} | {x.get('exchange','')}" : x for x in res['quotes']}
+                        sel_key = st.selectbox("Resultados:", list(opts.keys()))
+                        st.session_state['sel_add'] = opts[sel_key]
+                except: st.warning("Buscando...")
+        
+        with c2:
+            if 'sel_add' in st.session_state:
+                asset = st.session_state['sel_add']
+                ticker = asset['symbol']
+                
+                # Datos en tiempo real antes de añadir
+                info = yf.Ticker(ticker)
+                hist = info.history(period="1d")
+                
+                if not hist.empty:
+                    curr_price = hist['Close'].iloc[-1]
+                    
+                    st.markdown(f"### {ticker}")
+                    st.metric("Precio Mercado", f"{curr_price:.2f} €")
+                    
+                    with st.form("add_form"):
+                        inv = st.number_input("Dinero Invertido Total (€)", min_value=0.0)
+                        val = st.number_input("Valor Actual Total (€)", min_value=0.0)
+                        plat = st.selectbox("Broker", ["MyInvestor", "XTB", "Degiro", "Trade Republic", "IBKR", "Banco"])
+                        
+                        if st.form_submit_button("💾 Guardar en Cartera"):
+                            if val > 0:
+                                shares = val / curr_price
+                                avg_p = inv / shares if shares > 0 else 0
+                                add_asset_db(ticker, asset.get('longname', ticker), shares, avg_p, plat)
+                                st.toast("✅ Activo añadido correctamente")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("El valor actual debe ser > 0")
+
+    with tab_del:
+        if not df_final.empty:
+            st.dataframe(df_final)
+            to_del = st.selectbox("Selecciona activo para borrar:", df_final['Nombre'])
+            if st.button("🗑️ Eliminar Activo"):
+                bid = df_final[df_final['Nombre']==to_del].iloc[0]['id']
+                delete_asset_db(bid)
+                st.rerun()
+
+# ==============================================================================
+# ⚖️ PÁGINA 5: REBALANCEO TÁCTICO
+# ==============================================================================
+elif pagina == "⚖️ Rebalanceo Táctico":
+    st.title("⚖️ Rebalanceo Inteligente")
+    
+    if df_final.empty: st.stop()
+    
+    c_input, c_out = st.columns([1, 2])
+    
+    with c_input:
+        st.subheader("1. Tu Estrategia")
+        plazo = st.number_input("Meses para completar", 1, 24, 6)
+        
+        target_w = {}
+        sum_w = 0
+        
+        st.write("Pesos Objetivo (%):")
+        for i, row in df_final.iterrows():
+            col_a, col_b = st.columns([2, 1])
+            with col_a: st.write(f"**{row['ticker']}**")
+            with col_b: 
+                w = st.number_input(f"%", 0, 100, int(row['Peso %']), key=f"rw_{i}", label_visibility="collapsed")
+            target_w[row['Nombre']] = w
+            sum_w += w
             
-            reco = []
+        st.metric("Total %", f"{sum_w}%", delta="OK" if sum_w == 100 else f"Faltan {100-sum_w}%", delta_color="normal" if sum_w==100 else "inverse")
+        
+        calc_btn = st.button("🚀 Generar Plan de Compra", type="primary", disabled=(sum_w != 100))
+
+    with c_out:
+        if calc_btn and sum_w == 100:
+            patrimonio = df_final['Valor Acciones'].sum()
+            
+            # Lógica de "Water-filling" (Llenar lo que falta)
+            max_cap_req = 0
             for _, row in df_final.iterrows():
-                tgt_val = plan['target'] * (plan['weights'][row['Nombre']]/100)
-                diff = tgt_val - row['Valor Acciones']
-                buy = max(0, diff)
-                reco.append({'Activo': row['Nombre'], 'Aportar Total': buy, 'Cuota Mes': buy/plazo})
+                w_decimal = target_w[row['Nombre']] / 100
+                if w_decimal > 0:
+                    implied_pf = row['Valor Acciones'] / w_decimal
+                    if implied_pf > max_cap_req: max_cap_req = implied_pf
             
-            df_reco = pd.DataFrame(reco)
-            fig = px.bar(df_reco, x='Activo', y='Cuota Mes', color='Cuota Mes', title="Qué comprar cada mes (DCA Inteligente)")
+            target_pf = max(max_cap_req, patrimonio)
+            fresh_capital = target_pf - patrimonio
+            monthly = fresh_capital / plazo
+            
+            st.success(f"### Plan Aprobado")
+            m1, m2 = st.columns(2)
+            m1.metric("Capital Nuevo Total", f"{fresh_capital:,.0f} €")
+            m2.metric("Aportación Mensual", f"{monthly:,.0f} €")
+            
+            # Tabla de compras
+            plan_data = []
+            for _, row in df_final.iterrows():
+                obj_val = target_pf * (target_w[row['Nombre']] / 100)
+                diff = obj_val - row['Valor Acciones']
+                to_buy = max(0, diff)
+                plan_data.append({
+                    "Activo": row['Nombre'],
+                    "Peso Actual": f"{row['Peso %']:.1f}%",
+                    "Peso Objetivo": f"{target_w[row['Nombre']]}%",
+                    "Compra Total": to_buy,
+                    "Cuota Mensual": to_buy / plazo
+                })
+            
+            df_plan = pd.DataFrame(plan_data)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=df_plan['Activo'],
+                y=df_plan['Cuota Mensual'],
+                marker_color='#00CC96',
+                name='Compra Mensual'
+            ))
+            fig.update_layout(title="Distribución de Compras Mensuales (DCA)", yaxis_title="Euros")
             st.plotly_chart(fig, use_container_width=True)
+            
+            st.dataframe(df_plan)
