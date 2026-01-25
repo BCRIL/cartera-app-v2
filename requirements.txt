@@ -9,3 +9,4 @@ seaborn
 textblob
 numpy
 scipy
+duckduckgo_search
