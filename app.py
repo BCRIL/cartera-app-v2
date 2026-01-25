@@ -42,7 +42,7 @@ st.markdown("""
         border-right: 1px solid #30363D;
     }
 
-    /* TARJETAS DE MÉTRICAS (KPIs) */
+    /* TARJETAS DE MÉTRICAS */
     div[data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #41444C;
@@ -77,14 +77,13 @@ st.markdown("""
         border-color: #00CC96;
         color: #00CC96;
     }
-    /* Botón Primario */
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%);
         border: none;
         color: black;
     }
 
-    /* PESTAÑAS (TABS) */
+    /* PESTAÑAS */
     .stTabs [data-baseweb="tab"] {
         background-color: #161B22;
         border-radius: 6px;
@@ -98,23 +97,23 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* --- CHAT DE NOTICIAS (DERECHA) --- */
-    .news-container {
-        height: 85vh; /* Altura fija para el scroll */
-        overflow-y: auto; /* Scroll vertical */
+    /* --- CHAT DE NOTICIAS (ESTILO TWITCH FIXED) --- */
+    /* El contenedor con scroll */
+    .news-scroll-area {
+        height: 75vh; /* Altura fija para forzar scroll */
+        overflow-y: auto;
         padding: 15px;
-        background-color: #161B22; /* Fondo del recuadro */
-        border-left: 1px solid #30363D;
-        border-radius: 10px;
-        margin-left: 10px;
-        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        background-color: #161B22;
+        border: 1px solid #30363D;
+        border-radius: 12px;
+        margin-top: 10px;
     }
     
-    /* Scrollbar del chat */
-    .news-container::-webkit-scrollbar { width: 8px; }
-    .news-container::-webkit-scrollbar-track { background: #0E1117; }
-    .news-container::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
-    .news-container::-webkit-scrollbar-thumb:hover { background: #00CC96; }
+    /* Scrollbar */
+    .news-scroll-area::-webkit-scrollbar { width: 8px; }
+    .news-scroll-area::-webkit-scrollbar-track { background: #0E1117; border-radius: 4px;}
+    .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
+    .news-scroll-area::-webkit-scrollbar-thumb:hover { background: #00CC96; }
 
     /* Tarjetas de Noticias */
     .news-card {
@@ -124,10 +123,12 @@ st.markdown("""
         margin-bottom: 15px;
         border: 1px solid #30363D;
         transition: transform 0.2s;
+        display: flex;
+        flex-direction: column;
     }
     .news-card:hover {
         transform: scale(1.02);
-        border-color: #58A6FF;
+        border-color: #00CC96;
     }
     .news-img {
         width: 100%;
@@ -138,14 +139,14 @@ st.markdown("""
         opacity: 0.9;
     }
     .news-source {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         font-weight: 700;
-        color: #8B949E !important;
+        color: #8B949E;
         text-transform: uppercase;
         margin-bottom: 5px;
     }
     .news-title a {
-        color: #58A6FF !important; /* Enlaces azules brillantes */
+        color: #FFFFFF !important;
         font-weight: 600;
         font-size: 0.95rem;
         text-decoration: none;
@@ -154,9 +155,8 @@ st.markdown("""
     }
     .news-title a:hover {
         color: #00CC96 !important;
-        text-decoration: underline;
     }
-
+    
     /* Gráficos */
     .js-plotly-plot .plotly .main-svg {
         background-color: rgba(0,0,0,0) !important;
@@ -328,7 +328,7 @@ def get_global_news(tickers, time_filter='d'):
         main_ticker = tickers[0]
         queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado financiero"]
     else:
-        queries_to_try = ["Noticias economía inversiones"]
+        queries_to_try = ["Noticias economía inversiones españa"]
     
     try:
         with DDGS() as ddgs:
@@ -459,7 +459,6 @@ with col_main:
                 if not benchmark_data.empty:
                     bn = benchmark_data/benchmark_data.iloc[0]*100
                     fig.add_trace(go.Scatter(x=bn.index, y=bn, name="S&P500", line=dict(color='gray', dash='dot')))
-                # TEMA OSCURO
                 fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
             else: st.info("Faltan datos.")
@@ -610,11 +609,8 @@ with col_main:
             with c2:
                 st.write("Correlaciones")
                 fig = plt.figure(figsize=(5,4))
-                # Set dark background for matplotlib
                 fig.patch.set_facecolor('#0E1117')
-                ax = sns.heatmap(history_data.corr(), annot=True, cmap='coolwarm', 
-                                 cbar_kws={'label': 'Correlación'})
-                # Change text color to white
+                ax = sns.heatmap(history_data.corr(), annot=True, cmap='coolwarm', cbar_kws={'label': 'Correlación'})
                 for t in ax.texts: t.set_color('white')
                 ax.tick_params(colors='white')
                 st.pyplot(fig)
@@ -664,36 +660,41 @@ with col_main:
                 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- BOT DE NOTICIAS DERECHA (ESTILO TWITCH) ---
+# --- BOT DE NOTICIAS (RIGHT PANEL) ---
 if st.session_state['show_news']:
     with col_news:
-        st.markdown("<div class='news-container'>", unsafe_allow_html=True)
+        st.markdown("<div class='news-scroll-area'>", unsafe_allow_html=True)
         
-        c_h1, c_h2 = st.columns([3, 1])
-        with c_h1: st.subheader("🤖 Bot News")
-        with c_h2: 
-            if st.button("🔄", help="Actualizar"):
+        # HEADER FIJO DENTRO DEL SCROLL (Opcional, mejor visual)
+        st.subheader("🤖 Bot News")
+        
+        # CONTROLES
+        c_ref, c_fil = st.columns([1, 2])
+        with c_ref:
+            if st.button("🔄"):
                 st.cache_data.clear()
                 st.rerun()
-                
-        tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
-        sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy")
-        time_code = tf_map[sel_tf]
-        
+        with c_fil:
+            tf_map = {'Hoy': 'd', 'Semana': 'w', 'Mes': 'm'}
+            sel_tf = st.pills("Filtro:", list(tf_map.keys()), default="Hoy")
+            time_code = tf_map[sel_tf]
+
+        # CARGAR NOTICIAS (HTML PURO PARA QUE SEAN HIJOS DEL SCROLL)
         news_feed = get_global_news(my_tickers, time_code)
         
+        news_html = ""
         if news_feed:
             for n in news_feed:
-                img_html = f"<img src='{n['image']}' class='news-img'/>" if n['image'] else ""
-                st.markdown(f"""
+                img_tag = f"<img src='{n['image']}' class='news-img'/>" if n['image'] else ""
+                news_html += f"""
                 <div class="news-card">
-                    {img_html}
+                    {img_tag}
                     <div class="news-source">{n['source']} • {n['date']}</div>
                     <div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div>
                 </div>
-                """, unsafe_allow_html=True)
+                """
         else:
-            st.caption("No hay noticias recientes con este filtro.")
-            st.info("Prueba a cambiar a 'Semana' o 'Mes'.")
+            news_html = "<div style='color:#888; text-align:center; padding:20px;'>No hay noticias recientes.</div>"
             
+        st.markdown(news_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
