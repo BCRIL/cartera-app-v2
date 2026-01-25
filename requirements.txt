@@ -1,0 +1,6 @@
+streamlit
+pandas
+yfinance
+yahooquery
+supabase
+plotly
