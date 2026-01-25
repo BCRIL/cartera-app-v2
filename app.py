@@ -18,160 +18,134 @@ from duckduckgo_search import DDGS
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 DISEÑO ULTRA-MODERNO (CSS + JS)
+# 🌑 DISEÑO DARK MODE (CSS)
 # ==============================================================================
 st.markdown("""
 <style>
-    /* IMPORTAR FUENTE MODERNA */
+    /* IMPORTAR FUENTE */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
-    /* GENERAL APP */
+    /* FONDO GENERAL OSCURO */
     .stApp {
-        background-color: #F4F7F6; /* Gris muy suave, casi blanco */
+        background-color: #0E1117;
+        color: #FAFAFA;
         font-family: 'Inter', sans-serif;
     }
     
-    h1, h2, h3 {
-        color: #1E293B;
-        font-weight: 700;
-        letter-spacing: -0.5px;
+    h1, h2, h3, p, div, span, label {
+        color: #E6E6E6 !important;
     }
 
-    /* BARRA LATERAL (SIDEBAR) */
+    /* BARRA LATERAL */
     section[data-testid="stSidebar"] {
-        background-color: #0F172A; /* Azul noche profundo */
-    }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h3, section[data-testid="stSidebar"] p {
-        color: #F8FAFC !important;
-    }
-    .stRadio > div {
-        background-color: transparent;
-    }
-    .stRadio label {
-        color: #E2E8F0 !important;
-        font-weight: 500;
+        background-color: #161B22;
+        border-right: 1px solid #30363D;
     }
 
-    /* TARJETAS DE MÉTRICAS (Kpis) */
+    /* TARJETAS DE MÉTRICAS (KPIs) */
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        background-color: #262730;
+        border: 1px solid #41444C;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
-    div[data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        border-color: #00CC96;
+    div[data-testid="stMetricLabel"] p {
+        font-size: 0.9rem !important;
+        color: #9CA3AF !important;
     }
-    div[data-testid="stMetricLabel"] {
-        font-size: 0.9rem;
-        color: #64748B;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 1.8rem;
+    div[data-testid="stMetricValue"] div {
+        font-size: 1.8rem !important;
+        color: #FFFFFF !important;
         font-weight: 700;
-        color: #0F172A;
     }
 
-    /* BOTONES */
+    /* INPUTS Y BOTONES */
+    .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div {
+        background-color: #0E1117;
+        color: white;
+        border: 1px solid #30363D;
+    }
     .stButton > button {
         border-radius: 8px;
         font-weight: 600;
-        border: none;
-        transition: all 0.3s;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    /* Botón Primario (Verde Fintech) */
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00CC96 0%, #00a87e 100%);
+        border: 1px solid #30363D;
+        background-color: #21262D;
         color: white;
     }
-    .stButton > button[kind="primary"]:hover {
-        box-shadow: 0 4px 12px rgba(0, 204, 150, 0.4);
+    .stButton > button:hover {
+        border-color: #00CC96;
+        color: #00CC96;
     }
-    /* Botón Secundario */
-    .stButton > button[kind="secondary"] {
-        background: white;
-        color: #1E293B;
-        border: 1px solid #CBD5E1;
+    /* Botón Primario */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%);
+        border: none;
+        color: black;
     }
 
     /* PESTAÑAS (TABS) */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        background-color: transparent;
-        border-bottom: none;
-    }
     .stTabs [data-baseweb="tab"] {
-        background-color: #FFFFFF;
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
+        background-color: #161B22;
+        border-radius: 6px;
+        border: 1px solid #30363D;
         padding: 8px 16px;
-        font-weight: 600;
-        color: #64748B;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        color: #8B949E;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #0F172A;
-        color: #FFFFFF;
-        border-color: #0F172A;
+        background-color: #00CC96;
+        color: #000000 !important;
+        font-weight: bold;
     }
 
-    /* CHAT DE NOTICIAS (ESTILO TWITCH MODERNIZADO) */
+    /* --- CHAT DE NOTICIAS (DERECHA) --- */
     .news-container {
-        height: 85vh;
-        overflow-y: auto;
+        height: 85vh; /* Altura fija para el scroll */
+        overflow-y: auto; /* Scroll vertical */
         padding: 15px;
-        background-color: #FFFFFF;
-        border-radius: 16px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        background-color: #161B22; /* Fondo del recuadro */
+        border-left: 1px solid #30363D;
+        border-radius: 10px;
+        margin-left: 10px;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
     }
-    /* Scrollbar personalizado */
-    .news-container::-webkit-scrollbar {
-        width: 6px;
-    }
-    .news-container::-webkit-scrollbar-track {
-        background: #f1f1f1; 
-        border-radius: 4px;
-    }
-    .news-container::-webkit-scrollbar-thumb {
-        background: #cbd5e1; 
-        border-radius: 4px;
-    }
+    
+    /* Scrollbar del chat */
+    .news-container::-webkit-scrollbar { width: 8px; }
+    .news-container::-webkit-scrollbar-track { background: #0E1117; }
+    .news-container::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
+    .news-container::-webkit-scrollbar-thumb:hover { background: #00CC96; }
+
+    /* Tarjetas de Noticias */
     .news-card {
-        background-color: #FAFAFA;
-        border-radius: 12px;
+        background-color: #21262D;
+        border-radius: 8px;
         padding: 12px;
         margin-bottom: 15px;
-        border: 1px solid #F1F5F9;
-        transition: all 0.2s;
+        border: 1px solid #30363D;
+        transition: transform 0.2s;
     }
     .news-card:hover {
-        background-color: #FFFFFF;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         transform: scale(1.02);
+        border-color: #58A6FF;
     }
     .news-img {
         width: 100%;
-        height: 110px;
+        height: 120px;
         object-fit: cover;
-        border-radius: 8px;
+        border-radius: 6px;
         margin-bottom: 10px;
+        opacity: 0.9;
     }
     .news-source {
         font-size: 0.7rem;
         font-weight: 700;
-        color: #00CC96;
+        color: #8B949E !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
+        margin-bottom: 5px;
     }
     .news-title a {
-        color: #1E293B;
+        color: #58A6FF !important; /* Enlaces azules brillantes */
         font-weight: 600;
         font-size: 0.95rem;
         text-decoration: none;
@@ -179,16 +153,13 @@ st.markdown("""
         display: block;
     }
     .news-title a:hover {
-        color: #00CC96;
+        color: #00CC96 !important;
+        text-decoration: underline;
     }
 
-    /* GRÁFICOS CONTAINER */
-    .js-plotly-plot {
-        background-color: #FFFFFF;
-        border-radius: 12px;
-        padding: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: 1px solid #E2E8F0;
+    /* Gráficos */
+    .js-plotly-plot .plotly .main-svg {
+        background-color: rgba(0,0,0,0) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -212,7 +183,7 @@ if 'user' not in st.session_state: st.session_state['user'] = None
 if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 
 # ==============================================================================
-# 🔄 LOGIN Y REGISTRO (CON ESTILO)
+# 🔄 LOGIN Y REGISTRO
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -224,70 +195,59 @@ if "code" in query_params and not st.session_state['user']:
     except: pass
 
 if not st.session_state['user']:
-    c1, c2, c3 = st.columns([1,1.5,1])
+    c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style="text-align: center;">
-            <h1 style="font-size: 3rem;">🏦 Carterapro Ultra</h1>
-            <p style="color: #64748B; font-size: 1.1rem;">Tu centro de mando financiero inteligente.</p>
-        </div>
-        <br>
-        """, unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #00CC96;'>🏦 Carterapro Ultra</h1>", unsafe_allow_html=True)
+        st.caption("Gestión Patrimonial Institucional (Dark Edition)")
         
-        # Tarjeta de Login
-        with st.container(border=True):
-            tab_login, tab_signup = st.tabs(["🔐 Entrar", "📝 Registrarse"])
-            
-            with tab_login:
-                if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
-                    try:
-                        data = supabase.auth.sign_in_with_oauth({
-                            "provider": "google",
-                            "options": {"redirect_to": "https://carterapro.streamlit.app"}
-                        })
-                        st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
-                    except Exception as e: st.error(f"Error: {e}")
-                
-                st.markdown("<div style='text-align: center; color: #94A3B8; margin: 10px 0;'>— O con Email —</div>", unsafe_allow_html=True)
-                
-                email = st.text_input("Email", key="l_em")
-                password = st.text_input("Contraseña", type="password", key="l_pa")
-                if st.button("Iniciar Sesión", use_container_width=True):
-                    try:
-                        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                        st.session_state['user'] = res.user
-                        st.rerun()
-                    except: st.error("Credenciales incorrectas.")
+        tab_login, tab_signup = st.tabs(["🔐 Entrar", "📝 Registro"])
+        
+        with tab_login:
+            if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
+                try:
+                    data = supabase.auth.sign_in_with_oauth({
+                        "provider": "google",
+                        "options": {"redirect_to": "https://carterapro.streamlit.app"}
+                    })
+                    st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
+                except Exception as e: st.error(f"Error: {e}")
+            st.divider()
+            email = st.text_input("Email", key="l_em")
+            password = st.text_input("Contraseña", type="password", key="l_pa")
+            if st.button("Entrar", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state['user'] = res.user
+                    st.rerun()
+                except: st.error("Credenciales incorrectas.")
 
-            with tab_signup:
-                st.write("Crea tu cuenta gratuita y empieza a controlar tu patrimonio.")
-                r_email = st.text_input("Email", key="r_em")
-                r_pass = st.text_input("Contraseña", type="password", key="r_pa")
-                if st.button("Crear Cuenta", type="primary", use_container_width=True):
-                    try:
-                        res = supabase.auth.sign_up({"email": r_email, "password": r_pass})
-                        st.success("Cuenta creada. Revisa tu correo.")
-                    except Exception as e: st.error(f"Error: {e}")
+        with tab_signup:
+            r_email = st.text_input("Email", key="r_em")
+            r_pass = st.text_input("Contraseña", type="password", key="r_pa")
+            if st.button("Crear Cuenta", type="primary", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_up({"email": r_email, "password": r_pass})
+                    st.success("Cuenta creada. Revisa tu correo.")
+                except: st.error("Error al crear cuenta.")
     st.stop()
 
 user = st.session_state['user']
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # Avatar circular con borde
     avatar_url = user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png')
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
-        <img src="{avatar_url}" style="width: 50px; height: 50px; border-radius: 50%; border: 2px solid #00CC96;">
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 10px; background: #21262D; border-radius: 10px;">
+        <img src="{avatar_url}" style="width: 40px; height: 40px; border-radius: 50%; border: 2px solid #00CC96;">
         <div>
-            <h3 style="margin: 0; font-size: 1rem;">Hola, Inversor</h3>
-            <span style="color: #00CC96; font-size: 0.8rem;">● En línea</span>
+            <h3 style="margin: 0; font-size: 0.9rem; color: white !important;">{user.user_metadata.get('full_name', 'Inversor')}</h3>
+            <span style="color: #00CC96; font-size: 0.7rem;">● En línea</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Toggle Noticias con estilo
+    # Toggle Noticias
     c_t1, c_t2 = st.columns([1, 4])
     with c_t1: st.write("📰")
     with c_t2: 
@@ -296,7 +256,7 @@ with st.sidebar:
         else: st.session_state['show_news'] = False
 
     st.divider()
-    pagina = st.radio("MENÚ PRINCIPAL", [
+    pagina = st.radio("MENÚ", [
         "📊 Dashboard & Alpha", 
         "💰 Liquidez (Cash)",
         "➕ Gestión de Inversiones",
@@ -304,8 +264,8 @@ with st.sidebar:
         "🔮 Monte Carlo", 
         "⚖️ Rebalanceo"
     ])
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    if st.button("Cerrar Sesión", type="secondary", use_container_width=True):
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Cerrar Sesión", use_container_width=True):
         supabase.auth.sign_out(); st.session_state['user'] = None; st.rerun()
 
 # --- FUNCIONES MATEMÁTICAS ---
@@ -332,7 +292,7 @@ def sanitize_input(text):
     if not isinstance(text, str): return ""
     return re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
 
-# --- CACHE & DATOS ---
+# --- CACHE ---
 @st.cache_data(ttl=60)
 def get_assets_db(uid):
     try: return pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
@@ -499,7 +459,8 @@ with col_main:
                 if not benchmark_data.empty:
                     bn = benchmark_data/benchmark_data.iloc[0]*100
                     fig.add_trace(go.Scatter(x=bn.index, y=bn, name="S&P500", line=dict(color='gray', dash='dot')))
-                fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                # TEMA OSCURO
+                fig.update_layout(template="plotly_dark", height=300, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
             else: st.info("Faltan datos.")
         
@@ -509,7 +470,7 @@ with col_main:
                 vals = [total_liquidez] + df_final['Valor Acciones'].tolist() if not df_final.empty else [total_liquidez]
                 nams = ['💧 Liquidez'] + df_final['Nombre'].tolist() if not df_final.empty else ['Liquidez']
                 fig = px.pie(values=vals, names=nams, hole=0.6, color_discrete_sequence=px.colors.qualitative.Prism)
-                fig.update_layout(height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0))
+                fig.update_layout(template="plotly_dark", height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
@@ -518,7 +479,7 @@ with col_main:
             st.subheader("🗺️ Mapa de Calor (P&L)")
             if not df_final.empty:
                 fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad', color_continuous_scale='RdYlGn', color_continuous_midpoint=0)
-                fig_tree.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0))
+                fig_tree.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_tree, use_container_width=True)
             else: st.info("Sin inversiones.")
         with c_bar:
@@ -526,16 +487,16 @@ with col_main:
             if not df_final.empty:
                 df_sorted = df_final.sort_values('Ganancia', ascending=False)
                 fig_bar = px.bar(df_sorted, x='Ganancia', y='Nombre', orientation='h', color='Ganancia', color_continuous_scale='RdYlGn', text_auto='.2s')
-                fig_bar.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                fig_bar.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_bar, use_container_width=True)
             else: st.info("Sin inversiones.")
 
     elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Mi Liquidez")
         st.markdown(f"""
-        <div style="text-align:center; padding: 40px; background-color: #FFFFFF; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #E2E8F0;">
-            <h3 style="color:#64748B; margin:0; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px;">Saldo Disponible</h3>
-            <h1 style="font-size: 4rem; color:#0F172A; margin: 10px 0;">{total_liquidez:,.2f} €</h1>
+        <div style="text-align:center; padding: 40px; background-color: #21262D; border-radius: 15px; margin-bottom: 30px; border: 1px solid #30363D;">
+            <h3 style="color:#8B949E; margin:0; font-size: 1.1rem; text-transform: uppercase;">Saldo Disponible</h3>
+            <h1 style="font-size: 4rem; color:#FFFFFF; margin: 10px 0;">{total_liquidez:,.2f} €</h1>
         </div>
         """, unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -648,7 +609,15 @@ with col_main:
                 except: pass
             with c2:
                 st.write("Correlaciones")
-                sns.heatmap(history_data.corr(), annot=True, cmap='coolwarm'); st.pyplot(plt)
+                fig = plt.figure(figsize=(5,4))
+                # Set dark background for matplotlib
+                fig.patch.set_facecolor('#0E1117')
+                ax = sns.heatmap(history_data.corr(), annot=True, cmap='coolwarm', 
+                                 cbar_kws={'label': 'Correlación'})
+                # Change text color to white
+                for t in ax.texts: t.set_color('white')
+                ax.tick_params(colors='white')
+                st.pyplot(fig)
         else: st.warning("Faltan datos.")
 
     elif pagina == "🔮 Monte Carlo":
@@ -671,7 +640,8 @@ with col_main:
                 x = np.linspace(0, ys, len(paths[0]))
                 fig = go.Figure()
                 for p in paths: fig.add_trace(go.Scatter(x=x, y=p, mode='lines', line=dict(color='rgba(0,100,200,0.1)'), showlegend=False))
-                fig.add_trace(go.Scatter(x=x, y=np.mean(paths, axis=0), mode='lines', line=dict(color='blue', width=3)))
+                fig.add_trace(go.Scatter(x=x, y=np.mean(paths, axis=0), mode='lines', line=dict(color='#00CC96', width=3)))
+                fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error("Error simulación")
 
@@ -690,7 +660,9 @@ with col_main:
                 pat = df_final['Valor Acciones'].sum()
                 mc = max([r['Valor Acciones']/(ws[r['Nombre']]/100) for i,r in df_final.iterrows() if ws[r['Nombre']]>0]+[pat])
                 dat = [{'Activo':r['Nombre'], 'Comprar':max(0, (mc*ws[r['Nombre']]/100)-r['Valor Acciones'])} for i,r in df_final.iterrows()]
-                st.plotly_chart(px.bar(pd.DataFrame(dat), x='Activo', y='Comprar'), use_container_width=True)
+                fig = px.bar(pd.DataFrame(dat), x='Activo', y='Comprar')
+                fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig, use_container_width=True)
 
 # --- BOT DE NOTICIAS DERECHA (ESTILO TWITCH) ---
 if st.session_state['show_news']:
