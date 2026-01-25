@@ -200,10 +200,6 @@ if pagina == "🤖 Asesor IA en Vivo":
             alertas_graves.append(f"⚠️ **Riesgo Alto:** Estás muy expuesto a **{asset_max}** ({max_peso:.1f}% de tu dinero). Si cae, sufres. Diversifica.")
 
         # 2. Señales Técnicas (RSI)
-        
-
-[Image of RSI indicator chart]
-
         for _, row in df_final.iterrows():
             if row['RSI'] > 75:
                 consejos_venta.append(f"🔴 **{row['Nombre']}** está caro (RSI {row['RSI']:.0f}). Podría bajar pronto. ¿Vender un poco?")
@@ -247,7 +243,6 @@ if pagina == "🤖 Asesor IA en Vivo":
                 fig, ax = plt.subplots(figsize=(8, 5))
                 sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
                 st.pyplot(fig)
-                
             else:
                 st.info("Añade al menos 2 activos para ver si están correlacionados.")
 
