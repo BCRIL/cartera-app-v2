@@ -23,6 +23,7 @@ st.markdown("""
     .stMetric {text-align: center;}
     div[data-testid="stMetricLabel"] > div > div {cursor: help;}
     div[role="tablist"] {justify-content: center;}
+    .big-font {font-size:20px !important; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,8 +60,6 @@ if not st.session_state['user']:
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         st.title("🏦 Carterapro Ultra")
-        st.caption("Gestión Patrimonial Institucional")
-        
         if st.button("🇬 Iniciar con Google", type="primary", use_container_width=True):
             try:
                 data = supabase.auth.sign_in_with_oauth({
@@ -90,9 +89,9 @@ with st.sidebar:
     pagina = st.radio("Navegación", [
         "📊 Dashboard & Alpha", 
         "💰 Liquidez (Cash)",
+        "➕ Gestión de Inversiones",
         "🤖 Asesor de Riesgos", 
         "🔮 Monte Carlo", 
-        "➕ Gestión de Inversiones", 
         "⚖️ Rebalanceo"
     ])
     st.divider()
@@ -148,8 +147,13 @@ def get_liquidity_db():
     try: return pd.DataFrame(supabase.table('liquidity').select("*").eq('user_id', user.id).execute().data)
     except: return pd.DataFrame()
 
-def add_liquidity_db(name, amount, yield_pct):
-    supabase.table('liquidity').insert({"user_id": user.id, "name": name, "amount": amount, "yield": yield_pct}).execute()
+def add_liquidity_entry(name, amount):
+    # Crea una entrada de liquidez si no existe, o añade otra
+    supabase.table('liquidity').insert({"user_id": user.id, "name": name, "amount": amount, "yield": 0.0}).execute()
+
+def update_liquidity_balance(liq_id, new_amount):
+    # Actualiza el saldo de una "bolsa" de liquidez específica
+    supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
 
 def delete_liquidity_db(id_del):
     supabase.table('liquidity').delete().eq('id', id_del).execute()
@@ -220,7 +224,6 @@ patrimonio_total = total_inversiones + total_liquidez
 if pagina == "📊 Dashboard & Alpha":
     st.title("📊 Control de Mando Integral")
     
-    # KPIs Globales
     col_kpi, col_date = st.columns([3, 1])
     with col_date:
         start_date = st.date_input("📅 Desde:", value=datetime.now()-timedelta(days=180))
@@ -240,9 +243,7 @@ if pagina == "📊 Dashboard & Alpha":
 
     st.divider()
     
-    # Gráficos
     c_chart, c_pie = st.columns([2, 1])
-    
     with c_chart:
         st.subheader("🏁 Inversiones vs Mercado")
         if not history_data.empty and not benchmark_data.empty:
@@ -265,7 +266,6 @@ if pagina == "📊 Dashboard & Alpha":
 
     with c_pie:
         st.subheader("Asset Allocation")
-        # Gráfico Donut: Inversión vs Liquidez
         labels = ['Inversiones', 'Liquidez']
         values = [total_inversiones, total_liquidez]
         fig_alloc = px.pie(names=labels, values=values, hole=0.6, color_discrete_sequence=['#00CC96', '#636EFA'])
@@ -273,48 +273,202 @@ if pagina == "📊 Dashboard & Alpha":
         st.plotly_chart(fig_alloc, use_container_width=True)
 
 # ==============================================================================
-# 💰 PÁGINA 2: LIQUIDEZ (NUEVA)
+# 💰 PÁGINA 2: LIQUIDEZ (SIMPLIFICADA)
 # ==============================================================================
 elif pagina == "💰 Liquidez (Cash)":
     st.title("💰 Gestión de Liquidez")
     
-    col_add, col_view = st.columns([1, 2])
-    
-    with col_add:
-        st.markdown("### Añadir Cuenta / Depósito")
-        with st.form("add_cash"):
-            name = st.text_input("Nombre (Ej: Cuenta BBVA)")
-            amount = st.number_input("Saldo (€)", min_value=0.0, step=100.0)
-            yield_pct = st.number_input("Rentabilidad Anual (%)", min_value=0.0, step=0.1, help="Si es cuenta remunerada")
-            
-            if st.form_submit_button("💾 Guardar Efectivo"):
-                if name and amount > 0:
-                    add_liquidity_db(name, amount, yield_pct)
-                    st.success("Añadido.")
-                    time.sleep(1); st.rerun()
-                else: st.error("Rellena los datos.")
+    # KPIs Rápidos
+    st.markdown(f"""
+    <div style="background-color:#e3f2fd; padding:20px; border-radius:10px; text-align:center; border:1px solid #90caf9;">
+        <h2 style="margin:0; color:#1565c0;">{total_liquidez:,.2f} €</h2>
+        <p style="margin:0;">Liquidez Disponible Total</p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.write("")
 
-    with col_view:
-        st.markdown("### Mis Cuentas")
+    col_mov, col_hist = st.columns([1, 2])
+    
+    with col_mov:
+        st.subheader("Movimientos de Caja")
+        mov_type = st.radio("Acción", ["📥 Ingresar (Añadir)", "📤 Retirar (Gastar)"], horizontal=True)
+        amount = st.number_input("Cantidad (€)", min_value=0.0, step=100.0, key="liq_amt")
+        
+        # Selección de "Bolsa" (Si tiene varias cuentas, si no crea 'Principal')
+        wallet_opts = df_cash['name'].unique() if not df_cash.empty else ['Principal']
+        wallet_sel = st.selectbox("Destino / Origen", wallet_opts)
+        
+        if st.button("Ejecutar Movimiento", type="primary"):
+            if amount > 0:
+                # Buscar si existe esa wallet
+                target_row = df_cash[df_cash['name'] == wallet_sel]
+                
+                if not target_row.empty:
+                    current_bal = target_row.iloc[0]['amount']
+                    liq_id = target_row.iloc[0]['id']
+                    
+                    if "Retirar" in mov_type:
+                        if amount > current_bal:
+                            st.error("No tienes suficiente saldo en esa bolsa.")
+                        else:
+                            update_liquidity_balance(int(liq_id), current_bal - amount)
+                            st.success(f"Retirados {amount}€ de {wallet_sel}")
+                            time.sleep(1); st.rerun()
+                    else: # Ingresar
+                        update_liquidity_balance(int(liq_id), current_bal + amount)
+                        st.success(f"Añadidos {amount}€ a {wallet_sel}")
+                        time.sleep(1); st.rerun()
+                else:
+                    # Crear nueva si no existe (solo al ingresar)
+                    if "Ingresar" in mov_type:
+                        add_liquidity_entry(wallet_sel, amount)
+                        st.success(f"Creada bolsa {wallet_sel} con {amount}€")
+                        time.sleep(1); st.rerun()
+                    else:
+                        st.error("No existe esa bolsa para retirar.")
+
+    with col_hist:
+        st.subheader("Mis Bolsas de Liquidez")
         if not df_cash.empty:
             for i, row in df_cash.iterrows():
-                with st.expander(f"🏦 {row['name']} - {row['amount']:,.2f} €", expanded=True):
-                    c1, c2, c3 = st.columns([2,1,1])
-                    c1.caption(f"Rentabilidad: **{row['yield']}%**")
-                    interes_anual = row['amount'] * (row['yield']/100)
-                    c2.caption(f"Genera: ~{interes_anual:.2f}€/año")
-                    if c3.button("🗑️", key=f"del_cash_{row['id']}"):
+                with st.expander(f"💼 {row['name']}", expanded=True):
+                    c1, c2 = st.columns([3, 1])
+                    c1.metric("Saldo", f"{row['amount']:,.2f} €")
+                    if c2.button("Eliminar", key=f"del_l_{row['id']}"):
                         delete_liquidity_db(row['id'])
                         st.rerun()
-            
-            st.divider()
-            total_yield = (df_cash['amount'] * df_cash['yield']/100).sum()
-            st.info(f"💡 Tu liquidez te genera aproximadamente **{total_yield:,.2f} €** al año en intereses pasivos.")
         else:
-            st.info("No tienes efectivo registrado.")
+            st.info("No tienes liquidez. Usa el panel izquierdo para ingresar dinero.")
 
 # ==============================================================================
-# 🤖 PÁGINA 3: ASESOR
+# ➕ PÁGINA 3: GESTIÓN DE INVERSIONES (CONECTADA A LIQUIDEZ)
+# ==============================================================================
+elif pagina == "➕ Gestión de Inversiones":
+    st.title("➕ Inversiones (Stocks/ETFs)")
+    
+    t_new, t_trade, t_edit = st.tabs(["🆕 Añadir Nuevo", "💰 Operar (Compra/Venta)", "✏️ Editar"])
+    
+    # --- TAB 1: AÑADIR (Solo registro inicial, no resta liquidez) ---
+    with t_new:
+        st.caption("Usa esto para registrar activos que YA tienes. No afectará a tu liquidez.")
+        c1, c2 = st.columns(2)
+        with c1:
+            q = st.text_input("Buscar:", placeholder="ISIN o Nombre...")
+            if st.button("🔍") and q:
+                r = search(sanitize_input(q))
+                if 'quotes' in r: st.session_state['s'] = r['quotes']
+            if 's' in st.session_state:
+                opts = {f"{x['symbol']} | {x.get('longname','N/A')}" : x for x in st.session_state['s']}
+                sel = st.selectbox("Resultados:", list(opts.keys()))
+                st.session_state['sel_add'] = opts[sel]
+        with c2:
+            if 'sel_add' in st.session_state:
+                a = st.session_state['sel_add']
+                t = a['symbol']
+                try:
+                    inf = yf.Ticker(t).history(period='1d')
+                    if not inf.empty:
+                        cp = inf['Close'].iloc[-1]
+                        st.metric("Precio", f"{cp:.2f} €")
+                        with st.form("new"):
+                            inv = st.number_input("Invertido (€)", min_value=0.0)
+                            val = st.number_input("Valor (€)", min_value=0.0)
+                            pl = st.selectbox("Broker", ["MyInvestor", "XTB", "TR", "Degiro"])
+                            if st.form_submit_button("Guardar Registro") and val > 0:
+                                shares = val / cp
+                                avg_p = inv / shares if shares > 0 else 0
+                                add_asset_db(t, a.get('longname', t), shares, avg_p, pl)
+                                st.success("Registrado."); time.sleep(1); st.rerun()
+                except: st.error("Error precio.")
+
+    # --- TAB 2: OPERAR (CONECTADO A LIQUIDEZ) ---
+    with t_trade:
+        if df_final.empty: st.warning("Añade inversiones primero.")
+        else:
+            c_sel, c_ops = st.columns([1, 2])
+            with c_sel:
+                nom = st.selectbox("Activo", df_final['Nombre'].unique())
+                row = df_final[df_final['Nombre'] == nom].iloc[0]
+                cur_shares = row['shares']
+                cur_avg = row['avg_price']
+                st.info(f"Posición: **{cur_shares:.4f}** accs a **{cur_avg:.2f}€**.")
+
+            with c_ops:
+                live_price = row['Precio Actual']
+                st.metric("Precio Mercado", f"{live_price:.2f} €")
+                
+                op = st.radio("Acción", ["🟢 Compra", "🔴 Venta"], horizontal=True)
+                amt = st.number_input("Importe Operación (€)", 0.0, step=50.0)
+                
+                # Selector de Liquidez
+                use_cash = st.checkbox("Usar/Afectar Liquidez", value=True)
+                if use_cash and not df_cash.empty:
+                    wallet_sel = st.selectbox("Bolsa de Liquidez", df_cash['name'].unique())
+                    wallet_row = df_cash[df_cash['name'] == wallet_sel].iloc[0]
+                    current_cash = wallet_row['amount']
+                    st.caption(f"Saldo disponible en {wallet_sel}: **{current_cash:,.2f} €**")
+                elif use_cash and df_cash.empty:
+                    st.warning("⚠️ No tienes liquidez creada. Ve a la página de Liquidez.")
+                    use_cash = False
+
+                if amt > 0:
+                    sh_imp = amt / live_price
+                    
+                    if "Compra" in op:
+                        # VALIDACIÓN DE FONDOS
+                        can_buy = True
+                        if use_cash:
+                            if amt > current_cash:
+                                st.error("❌ Fondos insuficientes en la bolsa de liquidez seleccionada.")
+                                can_buy = False
+                        
+                        if can_buy:
+                            new_sh = cur_shares + sh_imp
+                            new_avg = ((cur_shares*cur_avg)+amt)/new_sh
+                            st.success(f"Comprarás {sh_imp:.4f} accs. Nuevo Precio Medio: {new_avg:.2f}€")
+                            
+                            if st.button("✅ Confirmar Compra"):
+                                # 1. Actualizar Activo
+                                update_asset_db(int(row['id']), new_sh, new_avg)
+                                # 2. Restar Liquidez
+                                if use_cash:
+                                    update_liquidity_balance(int(wallet_row['id']), current_cash - amt)
+                                    st.toast(f"Restados {amt}€ de {wallet_sel}")
+                                st.success("Compra realizada."); time.sleep(1.5); st.rerun()
+                                
+                    else: # VENTA
+                        if amt > (cur_shares * live_price): st.error("No tienes tantas acciones.")
+                        else:
+                            new_sh = cur_shares - sh_imp
+                            st.warning(f"Venderás {sh_imp:.4f} acciones. Recibirás {amt:.2f}€.")
+                            
+                            if st.button("🚨 Confirmar Venta"):
+                                # 1. Actualizar Activo
+                                if new_sh <= 0.001: delete_asset_db(int(row['id']))
+                                else: update_asset_db(int(row['id']), new_sh, cur_avg)
+                                
+                                # 2. Sumar Liquidez
+                                if use_cash:
+                                    update_liquidity_balance(int(wallet_row['id']), current_cash + amt)
+                                    st.toast(f"Añadidos {amt}€ a {wallet_sel}")
+                                st.success("Venta realizada."); time.sleep(1.5); st.rerun()
+
+    with t_edit:
+        if not df_final.empty:
+            ed = st.selectbox("Editar:", df_final['Nombre'], key='ed')
+            r_ed = df_final[df_final['Nombre']==ed].iloc[0]
+            c1, c2, c3 = st.columns(3)
+            ns = c1.number_input("Acciones", value=float(r_ed['shares']), format="%.4f")
+            na = c2.number_input("Precio Medio", value=float(r_ed['avg_price']), format="%.4f")
+            if c3.button("Actualizar Dato"):
+                update_asset_db(int(r_ed['id']), ns, na)
+                st.success("Hecho"); st.rerun()
+            if st.button(f"Borrar {ed}"):
+                delete_asset_db(int(r_ed['id']))
+                st.rerun()
+
+# ==============================================================================
+# 🤖 PÁGINA 4: ASESOR
 # ==============================================================================
 elif pagina == "🤖 Asesor de Riesgos":
     st.title("🤖 Diagnóstico IA")
@@ -338,7 +492,7 @@ elif pagina == "🤖 Asesor de Riesgos":
         st.metric("Beta Inversora", f"{beta:.2f}", help="Sensibilidad vs S&P 500")
         
         # Análisis de Liquidez en el Asesor
-        pct_cash = (total_liquidez / patrimonio_total * 100)
+        pct_cash = (total_liquidez / patrimonio_total * 100) if patrimonio_total > 0 else 0
         if pct_cash > 40: msgs.append(("ℹ️", f"Tienes mucha liquidez (**{pct_cash:.1f}%**). La inflación te está afectando. Considera invertir más."))
         elif pct_cash < 5: msgs.append(("🚨", f"Tienes poca liquidez (**{pct_cash:.1f}%**). Peligroso ante imprevistos."))
         else: msgs.append(("✅", f"Colchón de liquidez saludable (**{pct_cash:.1f}%**)."))
@@ -359,7 +513,7 @@ elif pagina == "🤖 Asesor de Riesgos":
         else: st.info("Faltan datos.")
 
 # ==============================================================================
-# 🔮 PÁGINA 4: MONTE CARLO
+# 🔮 PÁGINA 5: MONTE CARLO
 # ==============================================================================
 elif pagina == "🔮 Monte Carlo":
     st.title("🔮 Futuro (Solo Inversiones)")
@@ -410,89 +564,8 @@ elif pagina == "🔮 Monte Carlo":
         except: st.error("Sin noticias.")
 
 # ==============================================================================
-# ➕ PÁGINA 5: GESTIÓN DE INVERSIONES
+# ⚖️ PÁGINA 6: REBALANCEO
 # ==============================================================================
-elif pagina == "➕ Gestión de Inversiones":
-    st.title("➕ Inversiones (Stocks/ETFs)")
-    t_new, t_trade, t_edit = st.tabs(["🆕 Añadir", "💰 Operar", "✏️ Editar"])
-    
-    with t_new:
-        c1, c2 = st.columns(2)
-        with c1:
-            q = st.text_input("Buscar:", placeholder="ISIN o Nombre...")
-            if st.button("🔍") and q:
-                r = search(sanitize_input(q))
-                if 'quotes' in r: st.session_state['s'] = r['quotes']
-            if 's' in st.session_state:
-                opts = {f"{x['symbol']} | {x.get('longname','N/A')}" : x for x in st.session_state['s']}
-                sel = st.selectbox("Resultados:", list(opts.keys()))
-                st.session_state['sel_add'] = opts[sel]
-        with c2:
-            if 'sel_add' in st.session_state:
-                a = st.session_state['sel_add']
-                t = a['symbol']
-                try:
-                    inf = yf.Ticker(t).history(period='1d')
-                    if not inf.empty:
-                        cp = inf['Close'].iloc[-1]
-                        st.metric("Precio", f"{cp:.2f} €")
-                        with st.form("new"):
-                            inv = st.number_input("Invertido (€)", min_value=0.0)
-                            val = st.number_input("Valor (€)", min_value=0.0)
-                            pl = st.selectbox("Broker", ["MyInvestor", "XTB", "TR", "Degiro"])
-                            if st.form_submit_button("Guardar") and val > 0:
-                                shares = val / cp
-                                avg_p = inv / shares if shares > 0 else 0
-                                add_asset_db(t, a.get('longname', t), shares, avg_p, pl)
-                                st.success("Añadido."); time.sleep(1); st.rerun()
-                except: st.error("Error precio.")
-
-    with t_trade:
-        if df_final.empty: st.warning("Añade inversiones.")
-        else:
-            c_sel, c_ops = st.columns([1, 2])
-            with c_sel:
-                nom = st.selectbox("Activo", df_final['Nombre'].unique())
-                row = df_final[df_final['Nombre'] == nom].iloc[0]
-                cur_shares = row['shares']
-                cur_avg = row['avg_price']
-                st.info(f"Tienes **{cur_shares:.4f}** accs a **{cur_avg:.2f}€**.")
-            with c_ops:
-                live_price = row['Precio Actual']
-                st.metric("Precio Mercado", f"{live_price:.2f} €")
-                op = st.radio("Acción", ["🟢 Compra", "🔴 Venta"], horizontal=True)
-                amt = st.number_input("Importe (€)", 0.0, step=50.0)
-                if amt > 0:
-                    sh_imp = amt / live_price
-                    if "Compra" in op:
-                        new_sh = cur_shares + sh_imp
-                        new_avg = ((cur_shares*cur_avg)+amt)/new_sh
-                        if st.button("Confirmar Compra"):
-                            update_asset_db(int(row['id']), new_sh, new_avg)
-                            st.rerun()
-                    else:
-                        if amt > (cur_shares * live_price): st.error("Saldo insuficiente.")
-                        else:
-                            new_sh = cur_shares - sh_imp
-                            if st.button("Confirmar Venta"):
-                                if new_sh <= 0.001: delete_asset_db(int(row['id']))
-                                else: update_asset_db(int(row['id']), new_sh, cur_avg)
-                                st.rerun()
-
-    with t_edit:
-        if not df_final.empty:
-            ed = st.selectbox("Editar:", df_final['Nombre'], key='ed')
-            r_ed = df_final[df_final['Nombre']==ed].iloc[0]
-            c1, c2, c3 = st.columns(3)
-            ns = c1.number_input("Acciones", value=float(r_ed['shares']), format="%.4f")
-            na = c2.number_input("Precio Medio", value=float(r_ed['avg_price']), format="%.4f")
-            if c3.button("Actualizar"):
-                update_asset_db(int(r_ed['id']), ns, na)
-                st.success("Hecho"); st.rerun()
-            if st.button(f"Borrar {ed}"):
-                delete_asset_db(int(r_ed['id']))
-                st.rerun()
-
 elif pagina == "⚖️ Rebalanceo":
     st.title("⚖️ Rebalanceo (Solo Inversiones)")
     if df_final.empty: st.stop()
