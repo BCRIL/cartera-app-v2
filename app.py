@@ -15,49 +15,181 @@ import re
 from duckduckgo_search import DDGS 
 
 # --- CONFIGURACIÓN GLOBAL ---
-st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦")
+st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
-# --- ESTILOS CSS ---
+# ==============================================================================
+# 🎨 DISEÑO ULTRA-MODERNO (CSS + JS)
+# ==============================================================================
 st.markdown("""
 <style>
-    .metric-card {background-color: #f0f2f6; border-radius: 10px; padding: 15px; border: 1px solid #e0e0e0;}
-    .stMetric {text-align: center;}
-    div[data-testid="stMetricLabel"] > div > div {cursor: help;}
-    div[role="tablist"] {justify-content: center;}
-    .big-font {font-size:24px !important; font-weight: bold; color: #2E7D32;}
+    /* IMPORTAR FUENTE MODERNA */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+    /* GENERAL APP */
+    .stApp {
+        background-color: #F4F7F6; /* Gris muy suave, casi blanco */
+        font-family: 'Inter', sans-serif;
+    }
     
-    /* Estilo Chat Noticias */
+    h1, h2, h3 {
+        color: #1E293B;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+    }
+
+    /* BARRA LATERAL (SIDEBAR) */
+    section[data-testid="stSidebar"] {
+        background-color: #0F172A; /* Azul noche profundo */
+    }
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h3, section[data-testid="stSidebar"] p {
+        color: #F8FAFC !important;
+    }
+    .stRadio > div {
+        background-color: transparent;
+    }
+    .stRadio label {
+        color: #E2E8F0 !important;
+        font-weight: 500;
+    }
+
+    /* TARJETAS DE MÉTRICAS (Kpis) */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        border-color: #00CC96;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 0.9rem;
+        color: #64748B;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #0F172A;
+    }
+
+    /* BOTONES */
+    .stButton > button {
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        transition: all 0.3s;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    /* Botón Primario (Verde Fintech) */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00CC96 0%, #00a87e 100%);
+        color: white;
+    }
+    .stButton > button[kind="primary"]:hover {
+        box-shadow: 0 4px 12px rgba(0, 204, 150, 0.4);
+    }
+    /* Botón Secundario */
+    .stButton > button[kind="secondary"] {
+        background: white;
+        color: #1E293B;
+        border: 1px solid #CBD5E1;
+    }
+
+    /* PESTAÑAS (TABS) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: transparent;
+        border-bottom: none;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #FFFFFF;
+        border-radius: 8px;
+        border: 1px solid #E2E8F0;
+        padding: 8px 16px;
+        font-weight: 600;
+        color: #64748B;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #0F172A;
+        color: #FFFFFF;
+        border-color: #0F172A;
+    }
+
+    /* CHAT DE NOTICIAS (ESTILO TWITCH MODERNIZADO) */
     .news-container {
         height: 85vh;
         overflow-y: auto;
-        padding-right: 5px;
-        padding-left: 10px;
-        border-left: 1px solid #eee;
+        padding: 15px;
+        background-color: #FFFFFF;
+        border-radius: 16px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    /* Scrollbar personalizado */
+    .news-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    .news-container::-webkit-scrollbar-track {
+        background: #f1f1f1; 
+        border-radius: 4px;
+    }
+    .news-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 4px;
     }
     .news-card {
-        background-color: white;
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        border: 1px solid #f0f0f0;
-        transition: transform 0.2s;
+        background-color: #FAFAFA;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 15px;
+        border: 1px solid #F1F5F9;
+        transition: all 0.2s;
     }
-    .news-card:hover { transform: scale(1.01); }
+    .news-card:hover {
+        background-color: #FFFFFF;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        transform: scale(1.02);
+    }
     .news-img {
         width: 100%;
-        height: 100px;
+        height: 110px;
         object-fit: cover;
-        border-radius: 5px;
-        margin-bottom: 8px;
+        border-radius: 8px;
+        margin-bottom: 10px;
     }
-    .news-source { font-size: 0.7em; font-weight: bold; color: #666; text-transform: uppercase; }
-    .news-title { font-size: 0.9em; font-weight: 600; line-height: 1.2; margin-bottom: 5px; color: #111; }
-    .news-title a { text-decoration: none; color: #111; }
-    .news-title a:hover { color: #00CC96; }
-    
-    /* Animación suave */
-    .stApp { transition: all 0.3s ease-in-out; }
+    .news-source {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #00CC96;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    .news-title a {
+        color: #1E293B;
+        font-weight: 600;
+        font-size: 0.95rem;
+        text-decoration: none;
+        line-height: 1.4;
+        display: block;
+    }
+    .news-title a:hover {
+        color: #00CC96;
+    }
+
+    /* GRÁFICOS CONTAINER */
+    .js-plotly-plot {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #E2E8F0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,7 +212,7 @@ if 'user' not in st.session_state: st.session_state['user'] = None
 if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 
 # ==============================================================================
-# 🔄 LOGIN Y REGISTRO
+# 🔄 LOGIN Y REGISTRO (CON ESTILO)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -92,59 +224,79 @@ if "code" in query_params and not st.session_state['user']:
     except: pass
 
 if not st.session_state['user']:
-    c1, c2, c3 = st.columns([1,2,1])
+    c1, c2, c3 = st.columns([1,1.5,1])
     with c2:
-        st.title("🏦 Carterapro Ultra")
-        st.caption("Gestión Patrimonial Personal")
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style="text-align: center;">
+            <h1 style="font-size: 3rem;">🏦 Carterapro Ultra</h1>
+            <p style="color: #64748B; font-size: 1.1rem;">Tu centro de mando financiero inteligente.</p>
+        </div>
+        <br>
+        """, unsafe_allow_html=True)
         
-        tab_login, tab_signup = st.tabs(["🔐 Entrar", "📝 Registro"])
-        
-        with tab_login:
-            if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
-                try:
-                    data = supabase.auth.sign_in_with_oauth({
-                        "provider": "google",
-                        "options": {"redirect_to": "https://carterapro.streamlit.app"}
-                    })
-                    st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
-                except Exception as e: st.error(f"Error: {e}")
-            st.divider()
-            email = st.text_input("Email", key="l_em")
-            password = st.text_input("Contraseña", type="password", key="l_pa")
-            if st.button("Entrar", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state['user'] = res.user
-                    st.rerun()
-                except Exception as e: st.error("Credenciales incorrectas.")
+        # Tarjeta de Login
+        with st.container(border=True):
+            tab_login, tab_signup = st.tabs(["🔐 Entrar", "📝 Registrarse"])
+            
+            with tab_login:
+                if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
+                    try:
+                        data = supabase.auth.sign_in_with_oauth({
+                            "provider": "google",
+                            "options": {"redirect_to": "https://carterapro.streamlit.app"}
+                        })
+                        st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
+                    except Exception as e: st.error(f"Error: {e}")
+                
+                st.markdown("<div style='text-align: center; color: #94A3B8; margin: 10px 0;'>— O con Email —</div>", unsafe_allow_html=True)
+                
+                email = st.text_input("Email", key="l_em")
+                password = st.text_input("Contraseña", type="password", key="l_pa")
+                if st.button("Iniciar Sesión", use_container_width=True):
+                    try:
+                        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state['user'] = res.user
+                        st.rerun()
+                    except: st.error("Credenciales incorrectas.")
 
-        with tab_signup:
-            r_email = st.text_input("Email", key="r_em")
-            r_pass = st.text_input("Contraseña", type="password", key="r_pa")
-            if st.button("Crear Cuenta", type="primary", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_up({"email": r_email, "password": r_pass})
-                    st.success("Cuenta creada. Revisa tu correo.")
-                except Exception as e: st.error(f"Error: {e}")
+            with tab_signup:
+                st.write("Crea tu cuenta gratuita y empieza a controlar tu patrimonio.")
+                r_email = st.text_input("Email", key="r_em")
+                r_pass = st.text_input("Contraseña", type="password", key="r_pa")
+                if st.button("Crear Cuenta", type="primary", use_container_width=True):
+                    try:
+                        res = supabase.auth.sign_up({"email": r_email, "password": r_pass})
+                        st.success("Cuenta creada. Revisa tu correo.")
+                    except Exception as e: st.error(f"Error: {e}")
     st.stop()
 
 user = st.session_state['user']
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image(user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'), width=60)
-    st.markdown(f"### {user.user_metadata.get('full_name', 'Inversor')}")
+    # Avatar circular con borde
+    avatar_url = user.user_metadata.get('avatar_url', 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png')
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+        <img src="{avatar_url}" style="width: 50px; height: 50px; border-radius: 50%; border: 2px solid #00CC96;">
+        <div>
+            <h3 style="margin: 0; font-size: 1rem;">Hola, Inversor</h3>
+            <span style="color: #00CC96; font-size: 0.8rem;">● En línea</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Toggle Noticias
+    # Toggle Noticias con estilo
     c_t1, c_t2 = st.columns([1, 4])
     with c_t1: st.write("📰")
     with c_t2: 
-        if st.toggle("Noticias en Vivo", value=st.session_state['show_news']):
+        if st.toggle("Panel de Noticias", value=st.session_state['show_news']):
             st.session_state['show_news'] = True
         else: st.session_state['show_news'] = False
 
     st.divider()
-    pagina = st.radio("Navegación", [
+    pagina = st.radio("MENÚ PRINCIPAL", [
         "📊 Dashboard & Alpha", 
         "💰 Liquidez (Cash)",
         "➕ Gestión de Inversiones",
@@ -152,8 +304,8 @@ with st.sidebar:
         "🔮 Monte Carlo", 
         "⚖️ Rebalanceo"
     ])
-    st.divider()
-    if st.button("Cerrar Sesión"):
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    if st.button("Cerrar Sesión", type="secondary", use_container_width=True):
         supabase.auth.sign_out(); st.session_state['user'] = None; st.rerun()
 
 # --- FUNCIONES MATEMÁTICAS ---
@@ -214,9 +366,9 @@ def get_global_news(tickers, time_filter='d'):
     results = []
     if tickers:
         main_ticker = tickers[0]
-        queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado valores economía"]
+        queries_to_try = [f"{main_ticker} noticias finanzas", "Noticias mercado financiero"]
     else:
-        queries_to_try = ["Noticias economía inversiones españa"]
+        queries_to_try = ["Noticias economía inversiones"]
     
     try:
         with DDGS() as ddgs:
@@ -347,23 +499,23 @@ with col_main:
                 if not benchmark_data.empty:
                     bn = benchmark_data/benchmark_data.iloc[0]*100
                     fig.add_trace(go.Scatter(x=bn.index, y=bn, name="S&P500", line=dict(color='gray', dash='dot')))
-                fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+                fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
             else: st.info("Faltan datos.")
         
         with c_pi:
-            st.subheader("Cartera")
+            st.subheader("Cartera Total")
             if patrimonio_total > 0:
                 vals = [total_liquidez] + df_final['Valor Acciones'].tolist() if not df_final.empty else [total_liquidez]
                 nams = ['💧 Liquidez'] + df_final['Nombre'].tolist() if not df_final.empty else ['Liquidez']
-                fig = px.pie(values=vals, names=nams, hole=0.5, color_discrete_sequence=px.colors.qualitative.Prism)
+                fig = px.pie(values=vals, names=nams, hole=0.6, color_discrete_sequence=px.colors.qualitative.Prism)
                 fig.update_layout(height=300, showlegend=False, margin=dict(t=0,b=0,l=0,r=0))
                 st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
         c_tree, c_bar = st.columns([1.5, 1.5])
         with c_tree:
-            st.subheader("🗺️ Mapa de Calor")
+            st.subheader("🗺️ Mapa de Calor (P&L)")
             if not df_final.empty:
                 fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad', color_continuous_scale='RdYlGn', color_continuous_midpoint=0)
                 fig_tree.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0))
@@ -374,30 +526,37 @@ with col_main:
             if not df_final.empty:
                 df_sorted = df_final.sort_values('Ganancia', ascending=False)
                 fig_bar = px.bar(df_sorted, x='Ganancia', y='Nombre', orientation='h', color='Ganancia', color_continuous_scale='RdYlGn', text_auto='.2s')
-                fig_bar.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), yaxis={'categoryorder':'total ascending'})
+                fig_bar.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_bar, use_container_width=True)
             else: st.info("Sin inversiones.")
 
     elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Mi Liquidez")
-        st.markdown(f"<h1 style='text-align:center; color:#1b5e20; background:#e8f5e9; padding:20px; border-radius:15px;'>{total_liquidez:,.2f} €</h1>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="text-align:center; padding: 40px; background-color: #FFFFFF; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #E2E8F0;">
+            <h3 style="color:#64748B; margin:0; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px;">Saldo Disponible</h3>
+            <h1 style="font-size: 4rem; color:#0F172A; margin: 10px 0;">{total_liquidez:,.2f} €</h1>
+        </div>
+        """, unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            with st.expander("📥 INGRESAR", expanded=True):
-                a = st.number_input("€", 0.0, step=50.0, key="in")
-                if st.button("Ingresar", type="primary", use_container_width=True) and a>0:
+            with st.container(border=True):
+                st.markdown("#### 📥 Ingresar Dinero")
+                a = st.number_input("Cantidad (€)", 0.0, step=50.0, key="in")
+                if st.button("Confirmar Ingreso", type="primary", use_container_width=True) and a>0:
                     cid = get_liquidity_db(user.id).iloc[0]['id']
                     update_liquidity_balance(int(cid), total_liquidez + a)
-                    st.rerun()
+                    st.success("Hecho"); time.sleep(0.5); st.rerun()
         with c2:
-            with st.expander("📤 RETIRAR", expanded=True):
-                b = st.number_input("€", 0.0, step=50.0, key="out")
-                if st.button("Retirar", type="secondary", use_container_width=True) and b>0:
+            with st.container(border=True):
+                st.markdown("#### 📤 Retirar Dinero")
+                b = st.number_input("Cantidad (€)", 0.0, step=50.0, key="out")
+                if st.button("Confirmar Retirada", use_container_width=True) and b>0:
                     if b > total_liquidez: st.error("Sin saldo")
                     else:
                         cid = get_liquidity_db(user.id).iloc[0]['id']
                         update_liquidity_balance(int(cid), total_liquidez - b)
-                        st.rerun()
+                        st.success("Hecho"); time.sleep(0.5); st.rerun()
 
     elif pagina == "➕ Gestión de Inversiones":
         st.title("➕ Inversiones")
@@ -406,7 +565,7 @@ with col_main:
             c1, c2 = st.columns(2)
             with c1:
                 q = st.text_input("Buscar:", placeholder="ISIN o Nombre...")
-                if st.button("🔍") and q:
+                if st.button("🔍 Buscar") and q:
                     r = search(sanitize_input(q))
                     if 'quotes' in r: st.session_state['s'] = r['quotes']
                 if 's' in st.session_state:
@@ -448,7 +607,7 @@ with col_main:
                         if "Compra" in op:
                             if amt > total_liquidez: st.error("Sin liquidez")
                             else:
-                                if st.button("Confirmar Compra"):
+                                if st.button("Confirmar Compra", type="primary"):
                                     navg = ((r['shares']*r['avg_price'])+amt)/(r['shares']+sh)
                                     update_asset_db(int(r['id']), r['shares']+sh, navg)
                                     if cash_id: update_liquidity_balance(int(cash_id), total_liquidez - amt)
