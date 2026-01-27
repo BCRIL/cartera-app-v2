@@ -128,13 +128,11 @@ def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().u
 def get_user_data(uid):
     assets = pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
     liq_res = supabase.table('liquidity').select("*").eq('user_id', uid).execute().data
-    
     if not liq_res:
         supabase.table('liquidity').insert({"user_id": uid, "name": "Principal", "amount": 0.0}).execute()
         liquidity = 0.0; liq_id = 0
     else:
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
-        
     return assets, liquidity, liq_id
 
 @st.cache_data(ttl=300)
@@ -354,7 +352,7 @@ with col_main:
                         st.toast(f"✅ Retirados {b}€"); time.sleep(1); st.rerun()
 
     # ------------------------------------------------------------------
-    # ➕ PÁGINA INVERSIONES (MEJORADA CON BUSCADOR MONEDA)
+    # ➕ PÁGINA INVERSIONES
     # ------------------------------------------------------------------
     elif pagina == "➕ Inversiones":
         st.title("➕ Gestión de Activos")
@@ -365,60 +363,58 @@ with col_main:
             with c1:
                 q = st.text_input("🔍 Buscar (Nombre/ISIN/Ticker):")
                 if st.button("Buscar") and q:
-                    res = search(sanitize_input(q))
-                    if 'quotes' in res: st.session_state['s'] = res['quotes']
+                    try:
+                        res = search(sanitize_input(q))
+                        if 'quotes' in res and res['quotes']:
+                            st.session_state['s'] = res['quotes']
+                        else:
+                            st.warning("No se encontraron activos.")
+                            st.session_state['s'] = []
+                    except:
+                        st.error("Error en la búsqueda.")
+                        st.session_state['s'] = []
                 
-                if 's' in st.session_state:
-                    # MOSTRAR MÁS INFO EN EL DROPDOWN (Ticker | Nombre | Mercado | Tipo)
+                if 's' in st.session_state and st.session_state['s']:
+                    # Diccionario con clave segura
                     opts = {f"{x['symbol']} | {x.get('shortname', x.get('longname','N/A'))} ({x.get('exchDisp','Unknown')})" : x for x in st.session_state['s']}
-                    sel = st.selectbox("Selecciona:", list(opts.keys()))
-                    st.session_state['sel_add'] = opts[sel]
+                    
+                    if opts:
+                        sel = st.selectbox("Selecciona:", list(opts.keys()))
+                        if sel in opts:
+                            st.session_state['sel_add'] = opts[sel]
             
             with c2:
                 if 'sel_add' in st.session_state:
                     item = st.session_state['sel_add']
                     tk = item['symbol']
                     try:
-                        # Obtener info detallada para moneda
+                        # Obtener info detallada
                         ticker_obj = yf.Ticker(tk)
                         curr_p = ticker_obj.fast_info['last_price']
-                        currency = ticker_obj.fast_info['currency']
                         
-                        st.metric("Precio Actual", f"{curr_p:.2f} {currency}")
-                        
-                        if currency != 'EUR':
-                            st.warning(f"⚠️ Este activo cotiza en **{currency}**. Si buscas la versión en Euros, busca el ticker que termine en .DE (Alemania) o .MC (Madrid).")
-                        
-                        with st.form("add_new"):
-                            st.write(f"Guardando **{tk}**")
-                            # Pedimos valores en la moneda del activo para calcular acciones correctamente
-                            # O pedimos en EUR y avisamos. Para simplificar, asumimos que el usuario mete el valor en EUR y la app hace la conversión implícita visualmente, 
-                            # pero para el cálculo de "shares" necesitamos ser consistentes.
-                            # SOLUCIÓN ROBUSTA: Pedimos Inversión en EUR.
+                        if curr_p is None:
+                            st.warning("Precio no disponible en tiempo real.")
+                        else:
+                            currency = ticker_obj.fast_info['currency']
+                            st.metric("Precio Actual", f"{curr_p:.2f} {currency}")
                             
-                            inv_eur = st.number_input(f"Dinero Invertido (EUR)", 0.0)
-                            val_eur = st.number_input(f"Valor Actual (EUR)", 0.0)
-                            pl = st.selectbox("Broker", ["MyInvestor", "XTB", "Trade Republic", "Degiro", "IBKR"])
+                            if currency != 'EUR':
+                                st.warning(f"⚠️ Activo en **{currency}**. Busca la versión europea (ej. .DE) si usas XTB Euros.")
                             
-                            if st.form_submit_button("Guardar Activo") and val_eur > 0:
-                                # Si es moneda extranjera, el cálculo de shares es aproximado si no tenemos el tipo de cambio exacto.
-                                # Para simplificar la UX: Guardamos "shares" teóricas basadas en el precio actual convertido?
-                                # MEJOR: Guardamos lo que el usuario dice. 
-                                # Si el usuario dice "tengo 1000€ en Apple", y Apple vale 200$, 
-                                # es dificil saber cuantas acciones son sin el tipo de cambio EURUSD.
+                            with st.form("add_new"):
+                                st.write(f"Guardando **{tk}**")
+                                inv_eur = st.number_input(f"Dinero Invertido Total (EUR)", 0.0)
+                                val_eur = st.number_input(f"Valor Actual Total (EUR)", 0.0)
+                                pl = st.selectbox("Broker", ["MyInvestor", "XTB", "Trade Republic", "Degiro", "IBKR"])
                                 
-                                # APROXIMACIÓN PRÁCTICA:
-                                # Asumimos paridad o usamos el precio tal cual para sacar un ratio. 
-                                # Lo más limpio es dividir Valor EUR / Precio Activo (aunque sea divisa mixta) para tener un número de referencia,
-                                # O pedirle al usuario el NÚMERO DE ACCIONES directamente.
-                                
-                                st.info("Guardando... (Calculando acciones estimadas)")
-                                shares = val_eur / curr_p # Esto mezcla EUR/USD pero mantiene la proporción de valor relativa al precio.
-                                avg = inv_eur / shares if shares > 0 else 0
-                                
-                                add_asset_db(tk, item.get('longname', tk), shares, avg, pl)
-                                st.success("Guardado."); time.sleep(1); st.rerun()
-                    except: st.error("Error al obtener precio. Intenta otro ticker.")
+                                if st.form_submit_button("Guardar Activo") and val_eur > 0:
+                                    # Cálculo de acciones teóricas si hay cambio de divisa
+                                    shares = val_eur / curr_p 
+                                    avg = inv_eur / shares if shares > 0 else 0
+                                    
+                                    add_asset_db(tk, item.get('longname', tk), shares, avg, pl)
+                                    st.success("Guardado."); time.sleep(1); st.rerun()
+                    except: st.error("Error al obtener datos.")
 
         with t2:
             if df_final.empty: st.warning("Añade activos primero.")
@@ -427,7 +423,7 @@ with col_main:
                 with c1:
                     nom = st.selectbox("Activo:", df_final['Nombre'].unique())
                     row = df_final[df_final['Nombre']==nom].iloc[0]
-                    st.info(f"Tienes: `{row['shares']:.4f}` participaciones (aprox). Valor: `{row['Valor Acciones']:.2f} €`")
+                    st.info(f"Tienes: `{row['shares']:.4f}` participaciones. Valor: `{row['Valor Acciones']:.2f} €`")
                 
                 with c2:
                     tipo = st.radio("Acción:", ["🟢 Comprar", "🔴 Vender"], horizontal=True)
@@ -557,7 +553,12 @@ if st.session_state['show_news']:
         if news:
             for n in news:
                 im = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                h += f"""<div class="news-card">{im}<div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div><div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div></div>"""
+                h += f"""
+                <div class="news-card">
+                    {im}
+                    <div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div>
+                    <div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div>
+                </div>"""
         else: h = "<div style='text-align:center;color:#666;padding:20px'>💤 Sin noticias</div>"
         
         st.markdown(f"<div class='news-scroll-area'>{h}</div>", unsafe_allow_html=True)
