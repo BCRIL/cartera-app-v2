@@ -13,55 +13,60 @@ from datetime import datetime, timedelta
 import re
 from duckduckgo_search import DDGS 
 import openai 
+from scipy.stats import norm
 
 # --- CONFIGURACIÓN GLOBAL ---
 st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🌑 DISEÑO DARK MODE PROFESIONAL
+# 🌑 DISEÑO DARK MODE "GLASS" (CSS v17)
 # ==============================================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
-    .stApp { background-color: #0E1117; color: #FAFAFA; font-family: 'Inter', sans-serif; }
-    h1, h2, h3, p, div, span, label { color: #E6E6E6 !important; }
+    .stApp { background-color: #0B0E11; color: #E0E0E0; font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { color: #FFFFFF !important; font-weight: 700; letter-spacing: -0.5px; }
+    p, label, span { color: #A0AAB5 !important; }
     
     /* Sidebar */
-    section[data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #30363D; }
+    section[data-testid="stSidebar"] { background-color: #12151A; border-right: 1px solid #2D333B; }
 
     /* KPIs Flotantes */
     div[data-testid="stMetric"] {
-        background-color: #21262D; border: 1px solid #30363D; border-radius: 12px;
-        padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        background: linear-gradient(145deg, #1C2128, #16191D);
+        border: 1px solid #2D333B; border-radius: 16px;
+        padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
-    div[data-testid="stMetricValue"] { font-size: 1.5rem !important; color: white !important; font-weight: 700; }
+    div[data-testid="stMetric"]:hover { border-color: #00CC96; transform: translateY(-3px); transition: all 0.3s ease; }
+    div[data-testid="stMetricValue"] { font-size: 1.8rem !important; color: #FFFFFF !important; font-weight: 700; }
+    div[data-testid="stMetricLabel"] { font-size: 0.85rem !important; color: #8B949E !important; text-transform: uppercase; letter-spacing: 1px; }
     div[data-testid="stMetricDelta"] svg { display: none; } 
     
     /* Botones */
-    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; }
-    .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
-    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
+    .stButton>button { border-radius: 10px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; height: 45px; }
+    .stButton>button:hover { border-color: #00CC96; color: #00CC96; background-color: #1C2128; }
+    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #008f6b 100%); border: none; color: #0B0E11 !important; font-weight: 800; }
 
-    /* Chat Noticias - FIXED */
+    /* Chat Noticias */
     .news-scroll-area {
-        height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22;
-        border: 1px solid #30363D; border-radius: 12px; margin-top: 15px;
+        height: 72vh; overflow-y: auto; padding: 10px; background-color: #12151A;
+        border: 1px solid #2D333B; border-radius: 12px; margin-top: 15px;
     }
-    .news-scroll-area::-webkit-scrollbar { width: 6px; }
-    .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
+    .news-scroll-area::-webkit-scrollbar { width: 5px; }
+    .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 10px; }
     
     .news-card {
-        background-color: #21262D; border-radius: 8px; padding: 12px; margin-bottom: 12px;
-        border: 1px solid #30363D; display: flex; flex-direction: column; transition: transform 0.2s;
+        background-color: #1C2128; border-radius: 10px; padding: 15px; margin-bottom: 12px;
+        border: 1px solid #2D333B; display: flex; flex-direction: column; transition: transform 0.2s;
     }
-    .news-card:hover { transform: translateY(-2px); border-color: #00CC96; }
-    .news-img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; opacity: 0.8; }
-    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.95rem; display: block; line-height: 1.3; }
+    .news-card:hover { transform: scale(1.02); border-color: #00CC96; }
+    .news-img { width: 100%; height: 110px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; opacity: 0.85; }
+    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.95rem; line-height: 1.4; }
     .news-title a:hover { color: #00CC96 !important; }
-    .news-source { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; font-weight: bold; }
+    .news-source { font-size: 0.7rem; color: #00CC96; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; letter-spacing: 0.5px; }
 
-    /* Gráficos Limpios */
+    /* Gráficos */
     .js-plotly-plot .plotly .main-svg { background-color: rgba(0,0,0,0) !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -84,7 +89,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN (FIXED)
+# 🔄 LOGIN
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -100,7 +105,7 @@ if not st.session_state['user']:
         st.markdown("<br><h1 style='text-align: center; color: #00CC96;'>🏦 Carterapro Ultra</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["🔐 Entrar", "📝 Registro"])
         with tab1:
-            if st.button("🇬 Google", type="primary", use_container_width=True):
+            if st.button("🇬 Entrar con Google", type="primary", use_container_width=True):
                 try:
                     data = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://carterapro.streamlit.app"}})
                     st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
@@ -108,8 +113,8 @@ if not st.session_state['user']:
             st.divider()
             with st.form("login_form"):
                 em = st.text_input("Email")
-                pa = st.text_input("Pass", type="password")
-                if st.form_submit_button("Entrar", use_container_width=True):
+                pa = st.text_input("Contraseña", type="password")
+                if st.form_submit_button("Iniciar Sesión", use_container_width=True):
                     try:
                         res = supabase.auth.sign_in_with_password({"email": em, "password": pa})
                         st.session_state['user'] = res.user
@@ -118,35 +123,50 @@ if not st.session_state['user']:
         with tab2:
             with st.form("signup_form"):
                 em2 = st.text_input("Email")
-                pa2 = st.text_input("Pass", type="password")
+                pa2 = st.text_input("Contraseña", type="password")
                 if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado.")
+                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado. Revisa email.")
                     except: st.error("Error.")
     st.stop()
 
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 MOTOR DE DATOS
+# 🧠 ALGORITMOS FINANCIEROS AVANZADOS
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
 
-def safe_metric_calc(series):
+def calculate_advanced_metrics(series, benchmark=None):
+    """Calcula Sharpe, Sortino, VaR, MaxDD"""
     clean = series.dropna()
-    if len(clean) < 5: return 0, 0, 0, 0
+    if len(clean) < 10: return 0,0,0,0,0
+    
     returns = clean.pct_change().dropna()
-    if returns.empty: return 0, 0, 0, 0
-    try: total_ret = (clean.iloc[-1] / clean.iloc[0]) - 1
-    except: total_ret = 0
+    if returns.empty: return 0,0,0,0,0
+    
+    # 1. Volatilidad Anualizada
     vol = returns.std() * np.sqrt(252)
+    
+    # 2. Sharpe Ratio (RF = 3%)
     mean_ret = returns.mean() * 252
-    sharpe = (mean_ret - 0.03) / vol if vol > 0.001 else 0
+    sharpe = (mean_ret - 0.03) / vol if vol > 0 else 0
+    
+    # 3. Sortino Ratio (Solo penaliza volatilidad negativa)
+    downside = returns[returns < 0]
+    downside_dev = downside.std() * np.sqrt(252)
+    sortino = (mean_ret - 0.03) / downside_dev if downside_dev > 0 else 0
+    
+    # 4. Max Drawdown
     cum = (1 + returns).cumprod()
     peak = cum.cummax()
     dd = (cum - peak) / peak
     max_dd = dd.min()
-    return total_ret, vol, max_dd, sharpe
+    
+    # 5. Value at Risk (VaR 95% - Histórico)
+    var_95 = np.percentile(returns, 5) # El 5% de los peores días
+    
+    return vol, sharpe, sortino, max_dd, var_95
 
 @st.cache_data(ttl=60)
 def get_user_data(uid):
@@ -159,7 +179,7 @@ def get_user_data(uid):
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
     return assets, liquidity, liq_id
 
-# PRECIO ACTUAL (SIN CACHE AL PULSAR BOTÓN)
+# PRECIO ACTUAL (SIN CACHE)
 def get_real_time_prices(tickers):
     if not tickers: return {}
     prices = {}
@@ -177,27 +197,17 @@ def get_real_time_prices(tickers):
 
 @st.cache_data(ttl=300)
 def get_historical_data_robust(tickers):
-    """
-    Descarga histórico y SOLUCIONA EL PROBLEMA DE TIMEZONE.
-    """
     if not tickers: return pd.DataFrame()
-    
     unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
     try:
-        # Descarga con auto_adjust=True para evitar problemas de splits
-        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False, auto_adjust=True)['Close']
-        
-        # Corrección si devuelve Series
+        # Descarga con auto_adjust para dividendos/splits
+        data = yf.download(unique_tickers, period="5y", interval="1d", progress=False, auto_adjust=True)['Close']
         if isinstance(data, pd.Series):
             data = data.to_frame()
-            if data.columns[0] == 0 or 'Close' in str(data.columns[0]):
-                data.columns = unique_tickers
-            
+            if data.columns[0] == 0: data.columns = unique_tickers
         if not data.empty:
-            # 🔥 LA LÍNEA MÁGICA: Eliminar Timezone para que coincida con el DateInput 🔥
             data.index = data.index.tz_localize(None)
             data = data.fillna(method='ffill').fillna(method='bfill')
-            
         return data
     except Exception as e:
         print(f"Error descarga: {e}")
@@ -206,7 +216,7 @@ def get_historical_data_robust(tickers):
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
     results = []
-    query = f"{tickers[0]} bolsa" if tickers else "Mercado financiero"
+    query = f"{tickers[0]} finances" if tickers else "Stock market news"
     try:
         with DDGS() as ddgs:
             raw = list(ddgs.news(query, region="es-es", safesearch="off", timelimit=time_filter, max_results=8))
@@ -220,7 +230,7 @@ def get_global_news(tickers, time_filter='d'):
 
 def clear_cache(): st.cache_data.clear()
 
-# --- DB FUNCTIONS ---
+# --- DB WRAPPERS ---
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
     clear_cache()
@@ -237,7 +247,7 @@ def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
     clear_cache()
 
-# --- PROCESO DE CARGA ---
+# --- CARGA INICIAL ---
 df_assets, total_liquidez, cash_id = get_user_data(user.id)
 df_final = pd.DataFrame()
 history_data = pd.DataFrame()
@@ -246,12 +256,9 @@ my_tickers = []
 
 if not df_assets.empty:
     my_tickers = df_assets['ticker'].unique().tolist()
-    # 1. Precios Actuales
     current_prices = get_real_time_prices(my_tickers)
-    # 2. Histórico
     history_raw = get_historical_data_robust(my_tickers)
     
-    # Tabla Principal
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
     df_assets['Valor Acciones'] = df_assets['shares'] * df_assets['Precio Actual']
     df_assets['Dinero Invertido'] = df_assets['shares'] * df_assets['avg_price']
@@ -279,9 +286,9 @@ patrimonio_total = total_inversiones + total_liquidez
 with st.sidebar:
     avatar = user.user_metadata.get('avatar_url', '')
     st.markdown(f"""
-    <div style='display:flex; align-items:center; gap:10px; padding:10px; background:#21262D; border-radius:8px; border:1px solid #30363D;'>
+    <div style='display:flex; align-items:center; gap:10px; padding:10px; background:#1C2128; border-radius:10px; border:1px solid #30363D;'>
         <img src='{avatar}' style='width:35px; border-radius:50%; border:2px solid #00CC96;'>
-        <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● Online</span></div>
+        <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● En línea</span></div>
     </div><br>""", unsafe_allow_html=True)
     
     if st.button("🔄 Actualizar Datos", use_container_width=True, type="primary"):
@@ -291,90 +298,110 @@ with st.sidebar:
     st.divider()
     c1, c2 = st.columns([1,4])
     with c1: st.write("📰")
-    with c2: st.session_state['show_news'] = st.toggle("Noticias", value=st.session_state['show_news'])
+    with c2: st.session_state['show_news'] = st.toggle("Panel de Noticias", value=st.session_state['show_news'])
     
     pagina = st.radio("MENÚ", ["📊 Dashboard & Alpha", "💰 Liquidez (Cash)", "➕ Inversiones", "💬 Asesor AI", "🔮 Monte Carlo", "⚖️ Rebalanceo"])
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Cerrar Sesión", use_container_width=True): supabase.auth.sign_out(); st.session_state['user']=None; st.rerun()
 
-# --- MAIN ---
+# --- MAIN LAYOUT ---
 if st.session_state['show_news']: col_main, col_news = st.columns([3.5, 1.3])
 else: col_main = st.container(); col_news = st.container()
 
 with col_main:
     
     # ------------------------------------------------------------------
-    # 📊 DASHBOARD
+    # 📊 DASHBOARD & ALPHA
     # ------------------------------------------------------------------
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Control de Mando Integral")
         
-        col_kpi, col_date = st.columns([3, 1])
-        with col_date: 
-            # FECHA POR DEFECTO: 1 AÑO ATRÁS
-            default_start = datetime.now() - timedelta(days=365)
-            start_date = st.date_input("📅 Rango de Análisis:", value=default_start)
+        c_filter, c_score = st.columns([3, 1])
+        with c_filter:
+            # Default to 1 year back
+            d_start = datetime.now() - timedelta(days=365)
+            start_date = st.date_input("📅 Rango de Análisis:", value=d_start)
         
-        vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; cagr = 0; beta_portfolio = 1.0
+        # Calcular métricas globales
+        vol = 0; sharpe = 0; sortino = 0; max_dd = 0; var_95 = 0; beta = 1.0
         
         if not history_data.empty:
-            # Forzar fecha sin timezone
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
             hist_filt = history_data[history_data.index >= dt_start].copy()
             
             if not hist_filt.empty:
-                daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
-                if not daily_returns.empty:
-                    total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
-                    vol_anual = vol_anual * 100
-                    max_drawdown = max_drawdown_dec * 100
+                # Retorno diario cartera (Equiponderado simple)
+                # OJO: Si tienes pesos reales, deberíamos ponderar
+                port_daily = hist_filt.pct_change().mean(axis=1).dropna()
+                
+                if not port_daily.empty:
+                    vol, sharpe, sortino, max_dd, var_95 = calculate_advanced_metrics(port_daily)
                     
+                    # Formato porcentajes
+                    vol *= 100
+                    max_dd *= 100
+                    var_95 *= 100
+                    
+                    # Beta
                     if not benchmark_data.empty:
-                        bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
-                        common = daily_returns.index.intersection(bench_ret.index)
-                        if len(common) > 10:
-                            cov = daily_returns.loc[common].cov(bench_ret.loc[common])
-                            var = bench_ret.loc[common].var()
-                            beta_portfolio = cov / var if var != 0 else 1.0
+                        bench = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
+                        common = port_daily.index.intersection(bench.index)
+                        if len(common) > 20:
+                            cov = port_daily.loc[common].cov(bench.loc[common])
+                            var_m = bench.loc[common].var()
+                            beta = cov / var_m if var_m != 0 else 1.0
 
-        with col_kpi:
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("💰 Patrimonio Neto", f"{patrimonio_total:,.2f} €")
-            
-            if total_inversiones > 0:
-                pnl_total = df_final['Ganancia'].sum()
-                rent_total_pct = (pnl_total / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum() > 0 else 0
-                delta_color = "normal" if pnl_total >= 0 else "inverse"
-                k2.metric("📈 P&L Latente", f"{pnl_total:+,.2f} €", f"{rent_total_pct:+.2f}%", delta_color=delta_color)
-            else: k2.metric("📈 P&L Latente", "0.00 €")
-            
-            k3.metric("💧 Liquidez", f"{total_liquidez:,.2f} €", f"{(total_liquidez/patrimonio_total*100 if patrimonio_total>0 else 0):.1f}%")
-            k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}")
+        with c_score:
+            # Puntuación de Salud Financiera (Algoritmo simple)
+            score = 50
+            if sharpe > 1: score += 10
+            if sharpe > 2: score += 10
+            if max_dd > -15: score += 10
+            if vol < 15: score += 10
+            if len(df_final) > 3: score += 10
+            st.metric("🛡️ Financial Health Score", f"{score}/100")
+
+        # --- FILA 1: KPIs ---
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("💰 Patrimonio Neto", f"{patrimonio_total:,.2f} €")
+        
+        if total_inversiones > 0:
+            pnl = df_final['Ganancia'].sum()
+            pct = (pnl / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum() > 0 else 0
+            k2.metric("📈 P&L Total", f"{pnl:+,.2f} €", f"{pct:+.2f}%", delta_color="normal" if pnl>=0 else "inverse")
+        else: k2.metric("📈 P&L Total", "0.00 €")
+        
+        k3.metric("📉 Max Drawdown", f"{max_dd:.2f}%", delta_color="inverse", help="Peor caída en el periodo")
+        k4.metric("⚖️ Ratio Sharpe", f"{sharpe:.2f}", help="Retorno ajustado al riesgo")
 
         st.divider()
+        
+        # --- FILA 2: RIESGO ---
         r1, r2, r3, r4 = st.columns(4)
-        r1.metric("⚡ Volatilidad", f"{vol_anual:.2f}%")
-        r2.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse")
-        r3.metric("🌊 Beta Cartera", f"{beta_portfolio:.2f}")
-        r4.metric("🔄 Activos", f"{len(df_final)}")
+        r1.metric("⚡ Volatilidad Anual", f"{vol:.2f}%")
+        r2.metric("🛡️ Ratio Sortino", f"{sortino:.2f}", help="Mejor que Sharpe, solo cuenta riesgo negativo")
+        r3.metric("💣 VaR (95%) Diario", f"{var_95:.2f}%", help="Máxima pérdida esperada en 1 día con 95% confianza", delta_color="inverse")
+        r4.metric("🌊 Beta vs S&P500", f"{beta:.2f}")
         
         st.divider()
 
-        # GRÁFICO
+        # --- GRÁFICOS ---
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
-            st.subheader("🏁 Rendimiento (Base 100)")
+            st.subheader("🏁 Rendimiento Acumulado")
             if not history_data.empty:
                 dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
                 hist_filt = history_data[history_data.index >= dt_start].copy()
                 
                 if not hist_filt.empty:
+                    # Cartera
                     port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
                     port_cum = (1 + port_ret).cumprod() * 100
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
                     
+                    # Benchmark
                     if not benchmark_data.empty:
                         bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
                         if not bench_filt.empty:
@@ -385,8 +412,8 @@ with col_main:
                     fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', 
                                       hovermode="x unified", yaxis_title="Base 100")
                     st.plotly_chart(fig, use_container_width=True)
-                else: st.info("Datos insuficientes desde la fecha seleccionada.")
-            else: st.info("Añade activos para ver el histórico.")
+                else: st.info("Datos insuficientes en el rango.")
+            else: st.info("Sin histórico.")
 
         with c_donut:
             st.subheader("🍰 Asset Allocation")
@@ -394,35 +421,102 @@ with col_main:
                 labels = ['Liquidez'] + df_final['Nombre'].tolist() if not df_final.empty else ['Liquidez']
                 values = [total_liquidez] + df_final['Valor Acciones'].tolist() if not df_final.empty else [total_liquidez]
                 fig_pie = px.pie(names=labels, values=values, hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig_pie.update_layout(template="plotly_dark", height=320, showlegend=True, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)')
+                fig_pie.update_layout(template="plotly_dark", height=320, showlegend=True, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=-0.1))
                 st.plotly_chart(fig_pie, use_container_width=True)
             else: st.info("Cartera vacía.")
 
+        # --- CORRELACIONES ---
         st.divider()
-
-        # MAPA CALOR
-        c_tree, c_bar = st.columns([1.5, 1.5])
-        with c_tree:
-            st.subheader("🗺️ Mapa de Calor")
-            if not df_final.empty:
-                fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %', 
-                                      color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
-                fig_tree.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_tree, use_container_width=True)
-            else: st.info("Sin inversiones.")
-
-        with c_bar:
-            st.subheader("🏆 Ganadores (€)")
-            if not df_final.empty:
-                df_sorted = df_final.sort_values('Ganancia', ascending=True)
-                colors = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
-                fig_bar = go.Figure(go.Bar(x=df_sorted['Ganancia'], y=df_sorted['Nombre'], orientation='h', marker_color=colors, text=df_sorted['Ganancia'].apply(lambda x: f"{x:,.2f}€"), textposition='auto'))
-                fig_bar.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else: st.info("Sin inversiones.")
+        st.subheader("🔗 Matriz de Correlación")
+        if not history_data.empty:
+            corr_matrix = history_data.pct_change().corr()
+            fig_corr = px.imshow(corr_matrix, text_auto=True, aspect="auto", color_continuous_scale='RdBu_r')
+            fig_corr.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_corr, use_container_width=True)
 
     # ------------------------------------------------------------------
-    # 💰 LIQUIDEZ
+    # 🔮 MONTE CARLO (ALGORITMO MEJORADO)
+    # ------------------------------------------------------------------
+    elif pagina == "🔮 Monte Carlo":
+        st.title("🔮 Simulación Monte Carlo Profesional")
+        st.caption("Proyección basada en la media y volatilidad histórica REAL de tus activos, simulando 1000 escenarios posibles.")
+        
+        c_param, c_sim = st.columns([1, 3])
+        
+        with c_param:
+            ys = st.slider("Años a simular", 5, 40, 20)
+            sims = 1000 # Fijo para performance
+            
+            # Calcular parámetros reales
+            mu_anual = 0.07 # Default
+            sigma_anual = 0.15 # Default
+            
+            if not history_data.empty:
+                # Media de retornos logarítmicos
+                log_returns = np.log(history_data / history_data.shift(1)).dropna()
+                # Peso equiponderado (simple)
+                port_log_ret = log_returns.mean(axis=1)
+                
+                mu_anual = port_log_ret.mean() * 252
+                sigma_anual = port_log_ret.std() * np.sqrt(252)
+                
+            st.metric("Retorno Histórico (μ)", f"{mu_anual*100:.2f}%")
+            st.metric("Volatilidad Histórica (σ)", f"{sigma_anual*100:.2f}%")
+            
+            run_mc = st.button("🚀 Ejecutar Simulación", type="primary")
+
+        with c_sim:
+            if run_mc:
+                with st.spinner("Ejecutando 1,000 universos paralelos..."):
+                    dt = 1/252
+                    S0 = patrimonio_total if patrimonio_total > 0 else 10000
+                    
+                    # VECTORIZACIÓN NUMPY (Mucho más rápido)
+                    # Matriz: [dias, simulaciones]
+                    days = int(ys * 252)
+                    
+                    # Retornos aleatorios: N( (mu - 0.5*sigma^2)*dt, sigma*sqrt(dt) )
+                    drift = (mu_anual - 0.5 * sigma_anual**2) * dt
+                    vol = sigma_anual * np.sqrt(dt)
+                    
+                    # Generar matriz de shocks aleatorios
+                    Z = np.random.normal(0, 1, (days, sims))
+                    daily_returns = np.exp(drift + vol * Z)
+                    
+                    # Caminos de precios
+                    price_paths = np.zeros((days + 1, sims))
+                    price_paths[0] = S0
+                    
+                    for t in range(1, days + 1):
+                        price_paths[t] = price_paths[t-1] * daily_returns[t-1]
+                    
+                    # Percentiles para el Cono
+                    p10 = np.percentile(price_paths, 10, axis=1)
+                    p50 = np.percentile(price_paths, 50, axis=1)
+                    p90 = np.percentile(price_paths, 90, axis=1)
+                    
+                    x_axis = np.linspace(0, ys, days + 1)
+                    
+                    fig = go.Figure()
+                    # Área P10-P90
+                    fig.add_trace(go.Scatter(x=x_axis, y=p90, mode='lines', line=dict(width=0), showlegend=False, name='P90'))
+                    fig.add_trace(go.Scatter(x=x_axis, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 204, 150, 0.2)', name='Rango 80% Probabilidad'))
+                    
+                    # Media
+                    fig.add_trace(go.Scatter(x=x_axis, y=p50, mode='lines', line=dict(color='#00CC96', width=3), name='Escenario Base (P50)'))
+                    
+                    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', 
+                                      title="Proyección de Riqueza (Cono de Incertidumbre)", 
+                                      xaxis_title="Años", yaxis_title="Valor (€)")
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    c_res1, c_res2, c_res3 = st.columns(3)
+                    c_res1.metric("Escenario Pesimista", f"{p10[-1]:,.0f} €", help="Solo el 10% de las veces te irá peor que esto")
+                    c_res2.metric("Escenario Base", f"{p50[-1]:,.0f} €", help="Lo más probable")
+                    c_res3.metric("Escenario Optimista", f"{p90[-1]:,.0f} €", help="Si tienes suerte (Top 10%)")
+
+    # ------------------------------------------------------------------
+    # 💰 PÁGINA LIQUIDEZ
     # ------------------------------------------------------------------
     elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Gestión de Liquidez")
@@ -446,7 +540,7 @@ with col_main:
                         st.toast(f"✅ Retirados {b}€"); time.sleep(1); st.rerun()
 
     # ------------------------------------------------------------------
-    # ➕ INVERSIONES
+    # ➕ PÁGINA INVERSIONES
     # ------------------------------------------------------------------
     elif pagina == "➕ Inversiones":
         st.title("➕ Gestión de Activos")
@@ -559,32 +653,6 @@ with col_main:
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     except Exception as e: st.error(f"Error: {e}")
             else: st.warning("Falta GROQ_API_KEY")
-
-    # ------------------------------------------------------------------
-    # 🔮 MONTE CARLO
-    # ------------------------------------------------------------------
-    elif pagina == "🔮 Monte Carlo":
-        st.title("🔮 Futuro")
-        ys = st.slider("Años", 1, 30, 10)
-        if st.button("Simular", type="primary"):
-            mu, sigma = 0.07, 0.15
-            if not history_data.empty:
-                d = history_data.pct_change().dropna()
-                mu = d.mean().mean()*252; sigma = d.mean().std()*np.sqrt(252)
-            
-            paths = []
-            for _ in range(30):
-                p = [total_inversiones]
-                for _ in range(int(ys*252)):
-                    p.append(p[-1]*np.exp((mu-0.5*sigma**2)/252 + sigma*np.sqrt(1/252)*np.random.normal(0,1)))
-                paths.append(p)
-            
-            fig = go.Figure()
-            x = np.linspace(0, ys, len(paths[0]))
-            for p in paths: fig.add_trace(go.Scatter(x=x, y=p, mode='lines', line=dict(color='rgba(0,204,150,0.1)'), showlegend=False))
-            fig.add_trace(go.Scatter(x=x, y=np.mean(paths,axis=0), mode='lines', line=dict(color='#00CC96', width=3)))
-            fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', title="Proyección Patrimonial")
-            st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------------------------------------------
     # ⚖️ REBALANCEO
