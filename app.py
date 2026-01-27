@@ -9,7 +9,6 @@ import numpy as np
 import time
 import seaborn as sns
 import matplotlib.pyplot as plt
-from textblob import TextBlob
 from datetime import datetime, timedelta
 import re
 from duckduckgo_search import DDGS 
@@ -36,7 +35,7 @@ st.markdown("""
         background-color: #21262D; border: 1px solid #30363D; border-radius: 12px;
         padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }
-    div[data-testid="stMetricValue"] { font-size: 1.6rem !important; color: white !important; font-weight: 700; }
+    div[data-testid="stMetricValue"] { font-size: 1.5rem !important; color: white !important; font-weight: 700; }
     div[data-testid="stMetricDelta"] svg { display: none; } 
     
     /* Botones */
@@ -44,7 +43,7 @@ st.markdown("""
     .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
     .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
 
-    /* Chat Noticias (Fixed) */
+    /* Chat Noticias */
     .news-scroll-area {
         height: 68vh; overflow-y: auto; padding: 15px; background-color: #161B22;
         border: 1px solid #30363D; border-radius: 12px; margin-top: 15px;
@@ -84,7 +83,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN (SOLUCIONADO DOBLE CLICK)
+# 🔄 LOGIN (SOLUCIONADO)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -106,7 +105,6 @@ if not st.session_state['user']:
                     st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
                 except Exception as e: st.error(f"Error: {e}")
             st.divider()
-            
             with st.form("login_form"):
                 em = st.text_input("Email")
                 pa = st.text_input("Pass", type="password")
@@ -114,45 +112,40 @@ if not st.session_state['user']:
                     try:
                         res = supabase.auth.sign_in_with_password({"email": em, "password": pa})
                         st.session_state['user'] = res.user
-                        st.rerun() # Rerun inmediato
+                        st.rerun()
                     except: st.error("Credenciales incorrectas.")
         with tab2:
             with st.form("signup_form"):
                 em2 = st.text_input("Email")
                 pa2 = st.text_input("Pass", type="password")
                 if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado. Revisa email.")
+                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado.")
                     except: st.error("Error.")
     st.stop()
 
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 LÓGICA DE DATOS ROBUSTA (EL CEREBRO DE LA APP)
+# 🧠 MOTOR DE DATOS ROBUSTO
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
 
 def safe_metric_calc(series):
-    """Calcula métricas financieras de forma segura"""
+    """Calcula métricas financieras sin errores de división por cero"""
     clean = series.dropna()
-    if len(clean) < 2: return 0, 0, 0, 0
+    if len(clean) < 5: return 0, 0, 0, 0 # Necesitamos mínimos datos
     
     returns = clean.pct_change().dropna()
     if returns.empty: return 0, 0, 0, 0
     
-    # 1. Retorno Total
     try: total_ret = (clean.iloc[-1] / clean.iloc[0]) - 1
     except: total_ret = 0
     
-    # 2. Volatilidad Anual
     vol = returns.std() * np.sqrt(252)
-    
-    # 3. Sharpe Ratio (RF = 3%)
     mean_ret = returns.mean() * 252
     sharpe = (mean_ret - 0.03) / vol if vol > 0.001 else 0
     
-    # 4. Max Drawdown
     cum = (1 + returns).cumprod()
     peak = cum.cummax()
     dd = (cum - peak) / peak
@@ -162,31 +155,32 @@ def safe_metric_calc(series):
 
 @st.cache_data(ttl=60)
 def get_user_data(uid):
-    """Obtiene datos de Supabase"""
     assets = pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
     liq_res = supabase.table('liquidity').select("*").eq('user_id', uid).execute().data
-    
     if not liq_res:
         supabase.table('liquidity').insert({"user_id": uid, "name": "Principal", "amount": 0.0}).execute()
         liquidity = 0.0; liq_id = 0
     else:
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
-        
     return assets, liquidity, liq_id
 
-# 🔥 FUNCIÓN CLAVE: PRECIOS EN TIEMPO REAL REAL
+# Función no cacheada para actualización manual
 def get_real_time_prices(tickers):
-    """Obtiene el precio del último segundo usando fast_info"""
     if not tickers: return {}
     prices = {}
     for t in tickers:
         try:
+            # Intentamos fast_info primero
             info = yf.Ticker(t).fast_info
-            if 'last_price' in info and info['last_price']:
+            if 'last_price' in info and info['last_price'] is not None:
                 prices[t] = info['last_price']
             else:
-                hist = yf.Ticker(t).history(period='1d')
-                prices[t] = hist['Close'].iloc[-1] if not hist.empty else 0.0
+                # Fallback a history
+                hist = yf.Ticker(t).history(period='2d') # 2 días por si es lunes mañana
+                if not hist.empty:
+                    prices[t] = hist['Close'].iloc[-1]
+                else:
+                    prices[t] = 0.0
         except:
             prices[t] = 0.0
     return prices
@@ -198,41 +192,38 @@ def get_historical_data_robust(tickers):
     """
     if not tickers: return pd.DataFrame()
     
-    # Asegurar SPY para benchmark
-    unique_tickers = list(set([t.strip().upper() for t in tickers] + ['SPY']))
+    # Limpiamos tickers y añadimos SPY
+    unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
     
     try:
-        # Descarga
+        # Descarga masiva para velocidad
         data = yf.download(unique_tickers, period="2y", interval="1d", progress=False)['Adj Close']
         
-        # Si devuelve Series (1 activo), convertir a DF
+        # Corrección si devuelve Series en lugar de DataFrame
         if isinstance(data, pd.Series):
             data = data.to_frame()
-            # A veces yfinance pierde el nombre de columna si es serie
-            if data.columns[0] == 'Adj Close' or data.columns[0] == 0:
-                data.columns = unique_tickers
-        
-        if not data.empty:
-            # 🔥 CORRECCIÓN CRÍTICA DE FECHAS: Eliminar Timezone 🔥
-            data.index = data.index.tz_localize(None)
+            if data.columns[0] == 0: data.columns = unique_tickers
             
-            # Rellenar huecos (findes)
+        if not data.empty:
+            # 🔥 ELIMINAR ZONA HORARIA (CRÍTICO) 🔥
+            data.index = data.index.tz_localize(None)
+            # Rellenar festivos
             data = data.fillna(method='ffill').fillna(method='bfill')
             
         return data
-        
     except Exception as e:
-        print(f"Error descarga histórico: {e}")
+        print(f"Error descarga: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
     results = []
-    query = f"{tickers[0]} finanzas mercado" if tickers else "Mercado financiero noticias"
+    # Si hay tickers, buscamos el primero, si no general
+    query = f"{tickers[0]} noticias mercado" if tickers else "Bolsa economia noticias"
     try:
         with DDGS() as ddgs:
-            raw_news = list(ddgs.news(query, region="es-es", safesearch="off", timelimit=time_filter, max_results=10))
-            for n in raw_news:
+            raw = list(ddgs.news(query, region="es-es", safesearch="off", timelimit=time_filter, max_results=8))
+            for n in raw:
                 results.append({
                     'title': n.get('title'), 'source': n.get('source'), 'date': n.get('date'),
                     'url': n.get('url'), 'image': n.get('image', None)
@@ -240,10 +231,9 @@ def get_global_news(tickers, time_filter='d'):
     except: pass
     return results
 
-def clear_cache(): 
-    st.cache_data.clear()
+def clear_cache(): st.cache_data.clear()
 
-# --- DB WRAPPERS ---
+# --- DB OPERACIONES ---
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
     clear_cache()
@@ -260,7 +250,7 @@ def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
     clear_cache()
 
-# --- CARGA Y PROCESAMIENTO ---
+# --- CARGA DE DATOS AL INICIO ---
 df_assets, total_liquidez, cash_id = get_user_data(user.id)
 df_final = pd.DataFrame()
 history_data = pd.DataFrame()
@@ -268,18 +258,17 @@ benchmark_data = pd.Series()
 my_tickers = []
 
 if not df_assets.empty:
-    my_tickers = df_assets['ticker'].unique().tolist()
+    # Obtener tickers limpios
+    my_tickers = [str(t).strip().upper() for t in df_assets['ticker'].unique().tolist()]
     
-    # 1. Precios Actuales (Tiempo Real)
+    # 1. Precios Actuales (Tiempo real si se pide)
     current_prices = get_real_time_prices(my_tickers)
     
-    # 2. Histórico (Cacheado, robusto)
+    # 2. Histórico (Cacheado)
     history_raw = get_historical_data_robust(my_tickers)
     
-    # Mapear precios
+    # Procesar Tabla Principal
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
-    
-    # Cálculos
     df_assets['Valor Acciones'] = df_assets['shares'] * df_assets['Precio Actual']
     df_assets['Dinero Invertido'] = df_assets['shares'] * df_assets['avg_price']
     df_assets['Ganancia'] = df_assets['Valor Acciones'] - df_assets['Dinero Invertido']
@@ -293,7 +282,7 @@ if not df_assets.empty:
     )
     df_final = df_assets.rename(columns={'nombre': 'Nombre'})
     
-    # Separar Benchmark
+    # Separar Benchmark del Histórico
     if not history_raw.empty:
         if 'SPY' in history_raw.columns:
             benchmark_data = history_raw['SPY']
@@ -313,7 +302,7 @@ with st.sidebar:
         <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● Online</span></div>
     </div><br>""", unsafe_allow_html=True)
     
-    # 🔥 BOTÓN DE ACTUALIZACIÓN REAL 🔥
+    # BOTÓN DE ACTUALIZACIÓN
     if st.button("🔄 Actualizar Datos", use_container_width=True, type="primary"):
         clear_cache()
         st.rerun()
@@ -340,44 +329,48 @@ with col_main:
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Control de Mando Integral")
         
+        # Filtro fecha
         col_kpi, col_date = st.columns([3, 1])
         with col_date: 
             start_date = st.date_input("📅 Rango de Análisis:", value=datetime.now()-timedelta(days=365))
         
         # --- CÁLCULO DE MÉTRICAS ROBUSTO ---
-        vol_anual = 0
-        sharpe_ratio = 0
-        max_drawdown = 0
-        cagr = 0
-        beta_portfolio = 1.0
+        vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; cagr = 0; beta_portfolio = 1.0
         
-        if not history_data.empty:
-            # Simular la cartera actual
-            daily_returns = history_data.pct_change().mean(axis=1).dropna()
+        # Verificamos si hay datos históricos válidos
+        has_history = not history_data.empty and len(history_data.columns) > 0
+        
+        if has_history:
+            # Filtro fecha (SIN TIMEZONE)
+            dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
+            hist_filt = history_data[history_data.index >= dt_start].copy()
             
-            if not daily_returns.empty:
-                # Volatilidad
-                vol_anual = daily_returns.std() * np.sqrt(252) * 100
+            if not hist_filt.empty:
+                # 1. Retorno Diario Cartera (Media de activos)
+                daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
                 
-                # Sharpe
-                rf = 0.03
-                mean_ret = daily_returns.mean() * 252
-                sharpe_ratio = (mean_ret - rf) / (vol_anual/100) if vol_anual > 0 else 0
-                
-                # Max Drawdown
-                cumulative = (1 + daily_returns).cumprod()
-                peak = cumulative.cummax()
-                dd = (cumulative - peak) / peak
-                max_drawdown = dd.min() * 100
-                
-                # Beta
-                if not benchmark_data.empty:
-                    bench_ret = benchmark_data.pct_change().dropna()
-                    common_idx = daily_returns.index.intersection(bench_ret.index)
-                    if len(common_idx) > 20:
-                        cov = daily_returns.loc[common_idx].cov(bench_ret.loc[common_idx])
-                        var = bench_ret.loc[common_idx].var()
-                        beta_portfolio = cov / var if var != 0 else 1.0
+                if not daily_returns.empty:
+                    # Métricas
+                    total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
+                    
+                    # Ajustes de formato
+                    vol_anual = vol_anual * 100
+                    max_drawdown = max_drawdown_dec * 100
+                    
+                    # CAGR
+                    days = (hist_filt.index[-1] - hist_filt.index[0]).days
+                    if days > 30:
+                        total_ret_abs = (hist_filt.iloc[-1].sum() / hist_filt.iloc[0].sum()) - 1
+                        cagr = ((1 + total_ret_abs) ** (365/days) - 1) * 100
+                    
+                    # Beta
+                    if not benchmark_data.empty:
+                        bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
+                        common = daily_returns.index.intersection(bench_ret.index)
+                        if len(common) > 10:
+                            cov = daily_returns.loc[common].cov(bench_ret.loc[common])
+                            var = bench_ret.loc[common].var()
+                            beta_portfolio = cov / var if var != 0 else 1.0
 
         with col_kpi:
             k1, k2, k3, k4 = st.columns(4)
@@ -396,7 +389,6 @@ with col_main:
 
         st.divider()
         
-        # --- FILA 2: RIESGO ---
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("⚡ Volatilidad", f"{vol_anual:.2f}%")
         r2.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse")
@@ -405,26 +397,25 @@ with col_main:
         
         st.divider()
 
-        # --- FILA 3: GRÁFICO COMPARATIVO (ARREGLADO) ---
+        # --- GRÁFICO COMPARATIVO ---
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
-            st.subheader("🏁 Rendimiento Relativo (Base 100)")
-            if not history_data.empty:
-                # 🔥 FORZAR CONVERSIÓN A FECHA SIN TIMEZONE 🔥
+            st.subheader("🏁 Rendimiento (Base 100)")
+            if has_history:
                 dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
                 
-                # Filtrar con seguridad
+                # Filtrar
                 hist_filt = history_data[history_data.index >= dt_start].copy()
                 
                 if not hist_filt.empty:
-                    # Cartera (Promedio equiponderado de precios normalizados)
-                    # Calculamos el cambio porcentual acumulado
+                    # Cartera (Retorno acumulado promedio)
                     port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
                     port_cum = (1 + port_ret).cumprod() * 100
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
                     
+                    # Benchmark
                     if not benchmark_data.empty:
                         bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
                         if not bench_filt.empty:
@@ -450,7 +441,7 @@ with col_main:
 
         st.divider()
 
-        # --- FILA 4: MAPA CALOR ---
+        # --- MAPA CALOR ---
         c_tree, c_bar = st.columns([1.5, 1.5])
         with c_tree:
             st.subheader("🗺️ Mapa de Calor")
