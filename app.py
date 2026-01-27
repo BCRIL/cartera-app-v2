@@ -15,43 +15,53 @@ from duckduckgo_search import DDGS
 import openai 
 
 # --- CONFIGURACIÓN GLOBAL ---
-st.set_page_config(page_title="Gestor Patrimonial Pro", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🌑 DISEÑO DARK MODE (CSS v19)
+# 🌑 DISEÑO DARK MODE PROFESIONAL
 # ==============================================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
-    .stApp { background-color: #0B0E11; color: #E0E0E0; font-family: 'Inter', sans-serif; }
-    h1, h2, h3 { color: #FFFFFF !important; font-weight: 700; }
+    .stApp { background-color: #0E1117; color: #FAFAFA; font-family: 'Inter', sans-serif; }
+    h1, h2, h3, p, div, span, label { color: #E6E6E6 !important; }
     
     /* Sidebar */
-    section[data-testid="stSidebar"] { background-color: #12151A; border-right: 1px solid #2D333B; }
+    section[data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #30363D; }
 
     /* KPIs Flotantes */
     div[data-testid="stMetric"] {
-        background: linear-gradient(145deg, #1C2128, #16191D);
-        border: 1px solid #2D333B; border-radius: 12px;
-        padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        background-color: #21262D; border: 1px solid #30363D; border-radius: 12px;
+        padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }
-    div[data-testid="stMetricValue"] { font-size: 1.6rem !important; color: white !important; font-weight: 700; }
+    div[data-testid="stMetricValue"] { font-size: 1.5rem !important; color: white !important; font-weight: 700; }
     div[data-testid="stMetricDelta"] svg { display: none; } 
     
     /* Botones */
-    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; height: 45px; }
+    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; }
     .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
-    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: #000 !important; font-weight: 800; }
+    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
 
-    /* Chat Noticias */
-    .news-scroll-area { height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22; border: 1px solid #30363D; border-radius: 12px; margin-top: 15px; }
-    .news-card { background-color: #21262D; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #30363D; display: flex; flex-direction: column; }
+    /* Chat Noticias - FIXED */
+    .news-scroll-area {
+        height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22;
+        border: 1px solid #30363D; border-radius: 12px; margin-top: 15px;
+    }
+    .news-scroll-area::-webkit-scrollbar { width: 6px; }
+    .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
+    
+    .news-card {
+        background-color: #21262D; border-radius: 8px; padding: 12px; margin-bottom: 12px;
+        border: 1px solid #30363D; display: flex; flex-direction: column; transition: transform 0.2s;
+    }
+    .news-card:hover { transform: translateY(-2px); border-color: #00CC96; }
     .news-img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; opacity: 0.8; }
-    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-    .news-source { font-size: 0.7rem; color: #00CC96; text-transform: uppercase; margin-bottom: 4px; }
+    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.95rem; display: block; line-height: 1.3; }
+    .news-title a:hover { color: #00CC96 !important; }
+    .news-source { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; font-weight: bold; }
 
-    /* Gráficos */
+    /* Gráficos Limpios */
     .js-plotly-plot .plotly .main-svg { background-color: rgba(0,0,0,0) !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -74,7 +84,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN (ESTABILIZADO)
+# 🔄 LOGIN (FIXED)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -96,7 +106,7 @@ if not st.session_state['user']:
                     st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
                 except Exception as e: st.error(f"Error: {e}")
             st.divider()
-            with st.form("login"):
+            with st.form("login_form"):
                 em = st.text_input("Email")
                 pa = st.text_input("Pass", type="password")
                 if st.form_submit_button("Entrar", use_container_width=True):
@@ -106,24 +116,23 @@ if not st.session_state['user']:
                         st.rerun()
                     except: st.error("Credenciales incorrectas.")
         with tab2:
-            with st.form("signup"):
+            with st.form("signup_form"):
                 em2 = st.text_input("Email")
                 pa2 = st.text_input("Pass", type="password")
                 if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Cuenta creada.")
+                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado.")
                     except: st.error("Error.")
     st.stop()
 
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 MOTOR DE DATOS ROBUSTO
+# 🧠 MOTOR DE DATOS
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
 
 def safe_metric_calc(series):
-    """Calcula métricas evitando errores de array vacío"""
     clean = series.dropna()
     if len(clean) < 5: return 0, 0, 0, 0
     returns = clean.pct_change().dropna()
@@ -150,41 +159,49 @@ def get_user_data(uid):
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
     return assets, liquidity, liq_id
 
-# Precio Actual (Sin Cache al pulsar refresh)
+# PRECIO ACTUAL (SIN CACHE AL PULSAR BOTÓN)
 def get_real_time_prices(tickers):
     if not tickers: return {}
     prices = {}
     for t in tickers:
         try:
             info = yf.Ticker(t).fast_info
-            if 'last_price' in info and info['last_price']:
+            if 'last_price' in info and info['last_price'] is not None:
                 prices[t] = info['last_price']
             else:
                 hist = yf.Ticker(t).history(period='2d')
                 prices[t] = hist['Close'].iloc[-1] if not hist.empty else 0.0
-        except: prices[t] = 0.0
+        except:
+            prices[t] = 0.0
     return prices
 
 @st.cache_data(ttl=300)
 def get_historical_data_robust(tickers):
-    """Descarga histórico asegurando compatibilidad de fechas"""
+    """
+    Descarga histórico y SOLUCIONA EL PROBLEMA DE TIMEZONE.
+    """
     if not tickers: return pd.DataFrame()
-    unique = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
+    
+    unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
     try:
-        # Descarga
-        data = yf.download(unique, period="2y", interval="1d", progress=False)['Adj Close']
+        # Descarga con auto_adjust=True para evitar problemas de splits
+        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False, auto_adjust=True)['Close']
         
-        # Convertir a DF si es Serie
+        # Corrección si devuelve Series
         if isinstance(data, pd.Series):
             data = data.to_frame()
-            if data.columns[0] == 0: data.columns = unique
+            if data.columns[0] == 0 or 'Close' in str(data.columns[0]):
+                data.columns = unique_tickers
             
         if not data.empty:
-            # 🔥 QUITAR TIMEZONE PARA EVITAR EL BUG DEL DASHBOARD 🔥
+            # 🔥 LA LÍNEA MÁGICA: Eliminar Timezone para que coincida con el DateInput 🔥
             data.index = data.index.tz_localize(None)
             data = data.fillna(method='ffill').fillna(method='bfill')
+            
         return data
-    except: return pd.DataFrame()
+    except Exception as e:
+        print(f"Error descarga: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
@@ -203,7 +220,7 @@ def get_global_news(tickers, time_filter='d'):
 
 def clear_cache(): st.cache_data.clear()
 
-# --- DB WRAPPERS ---
+# --- DB FUNCTIONS ---
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
     clear_cache()
@@ -220,7 +237,7 @@ def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
     clear_cache()
 
-# --- CARGA ---
+# --- PROCESO DE CARGA ---
 df_assets, total_liquidez, cash_id = get_user_data(user.id)
 df_final = pd.DataFrame()
 history_data = pd.DataFrame()
@@ -229,9 +246,12 @@ my_tickers = []
 
 if not df_assets.empty:
     my_tickers = df_assets['ticker'].unique().tolist()
+    # 1. Precios Actuales
     current_prices = get_real_time_prices(my_tickers)
+    # 2. Histórico
     history_raw = get_historical_data_robust(my_tickers)
     
+    # Tabla Principal
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
     df_assets['Valor Acciones'] = df_assets['shares'] * df_assets['Precio Actual']
     df_assets['Dinero Invertido'] = df_assets['shares'] * df_assets['avg_price']
@@ -249,7 +269,8 @@ if not df_assets.empty:
         if 'SPY' in history_raw.columns:
             benchmark_data = history_raw['SPY']
             history_data = history_raw.drop(columns=['SPY'], errors='ignore')
-        else: history_data = history_raw
+        else:
+            history_data = history_raw
 
 total_inversiones = df_final['Valor Acciones'].sum() if not df_final.empty else 0.0
 patrimonio_total = total_inversiones + total_liquidez
@@ -283,97 +304,89 @@ else: col_main = st.container(); col_news = st.container()
 with col_main:
     
     # ------------------------------------------------------------------
-    # 📊 DASHBOARD (ARREGLADO)
+    # 📊 DASHBOARD
     # ------------------------------------------------------------------
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Control de Mando Integral")
         
-        c_date, c_score = st.columns([3, 1])
-        with c_date: 
-            # Fecha por defecto 1 año atrás
-            d_def = datetime.now() - timedelta(days=365)
-            start_date = st.date_input("📅 Rango de Análisis:", value=d_def)
+        col_kpi, col_date = st.columns([3, 1])
+        with col_date: 
+            # FECHA POR DEFECTO: 1 AÑO ATRÁS
+            default_start = datetime.now() - timedelta(days=365)
+            start_date = st.date_input("📅 Rango de Análisis:", value=default_start)
         
-        # Cálculos Métricas
-        vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; beta = 1.0; health = 50
+        vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; cagr = 0; beta_portfolio = 1.0
         
         if not history_data.empty:
-            # 1. Asegurar fecha sin zona horaria
+            # Forzar fecha sin timezone
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
-            
-            # 2. Filtrado seguro
-            try:
-                hist_filt = history_data[history_data.index >= dt_start].copy()
-            except:
-                hist_filt = history_data # Fallback si falla filtro
+            hist_filt = history_data[history_data.index >= dt_start].copy()
             
             if not hist_filt.empty:
-                # Retorno diario promedio de activos
                 daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
-                
                 if not daily_returns.empty:
-                    # Métricas
-                    _, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
-                    vol_anual *= 100; max_drawdown = max_drawdown_dec * 100
+                    total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
+                    vol_anual = vol_anual * 100
+                    max_drawdown = max_drawdown_dec * 100
                     
-                    # Score Salud
-                    health = 50
-                    if sharpe_ratio > 1: health += 15
-                    if max_drawdown > -20: health += 15
-                    if vol_anual < 15: health += 10
-                    if len(df_final) >= 3: health += 10
-                    
-                    # Beta
                     if not benchmark_data.empty:
-                        try:
-                            bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
-                            common = daily_returns.index.intersection(bench_ret.index)
-                            if len(common) > 10:
-                                cov = daily_returns.loc[common].cov(bench_ret.loc[common])
-                                var = bench_ret.loc[common].var()
-                                beta = cov / var if var != 0 else 1.0
-                        except: pass
+                        bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
+                        common = daily_returns.index.intersection(bench_ret.index)
+                        if len(common) > 10:
+                            cov = daily_returns.loc[common].cov(bench_ret.loc[common])
+                            var = bench_ret.loc[common].var()
+                            beta_portfolio = cov / var if var != 0 else 1.0
 
-        with c_score:
-            st.metric("🛡️ Salud Cartera", f"{health}/100", help="Puntuación algorítmica basada en diversificación y riesgo.")
-
-        # KPIs
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("💰 Patrimonio Neto", f"{patrimonio_total:,.2f} €", help="Total Activos + Liquidez")
-        
-        if total_inversiones > 0:
-            pnl = df_final['Ganancia'].sum()
-            pct = (pnl / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum()>0 else 0
-            k2.metric("📈 P&L Latente", f"{pnl:+,.2f} €", f"{pct:+.2f}%", delta_color="normal" if pnl>=0 else "inverse", help="Ganancia no realizada")
-        else: k2.metric("📈 P&L Latente", "0.00 €")
-        
-        k3.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse", help="La peor caída que has sufrido en este periodo")
-        k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}", help=">1: Bueno. Cuánto retorno obtienes por cada unidad de riesgo.")
+        with col_kpi:
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("💰 Patrimonio Neto", f"{patrimonio_total:,.2f} €")
+            
+            if total_inversiones > 0:
+                pnl_total = df_final['Ganancia'].sum()
+                rent_total_pct = (pnl_total / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum() > 0 else 0
+                delta_color = "normal" if pnl_total >= 0 else "inverse"
+                k2.metric("📈 P&L Latente", f"{pnl_total:+,.2f} €", f"{rent_total_pct:+.2f}%", delta_color=delta_color)
+            else: k2.metric("📈 P&L Latente", "0.00 €")
+            
+            k3.metric("💧 Liquidez", f"{total_liquidez:,.2f} €", f"{(total_liquidez/patrimonio_total*100 if patrimonio_total>0 else 0):.1f}%")
+            k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}")
 
         st.divider()
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("⚡ Volatilidad", f"{vol_anual:.2f}%")
+        r2.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse")
+        r3.metric("🌊 Beta Cartera", f"{beta_portfolio:.2f}")
+        r4.metric("🔄 Activos", f"{len(df_final)}")
+        
+        st.divider()
 
-        # GRÁFICO RENDIMIENTO
+        # GRÁFICO
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
             st.subheader("🏁 Rendimiento (Base 100)")
-            if not history_data.empty and 'hist_filt' in locals() and not hist_filt.empty:
-                port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
-                port_cum = (1 + port_ret).cumprod() * 100
+            if not history_data.empty:
+                dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
+                hist_filt = history_data[history_data.index >= dt_start].copy()
                 
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
-                
-                if not benchmark_data.empty:
-                    try:
+                if not hist_filt.empty:
+                    port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
+                    port_cum = (1 + port_ret).cumprod() * 100
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
+                    
+                    if not benchmark_data.empty:
                         bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
-                        bench_cum = (1 + bench_filt.pct_change().fillna(0)).cumprod() * 100
-                        fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
-                    except: pass
-                
-                fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Base 100")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No hay datos históricos suficientes para graficar. Dale a 'Actualizar Datos'.")
+                        if not bench_filt.empty:
+                            bench_ret = bench_filt.pct_change().fillna(0)
+                            bench_cum = (1 + bench_ret).cumprod() * 100
+                            fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
+                    
+                    fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', 
+                                      hovermode="x unified", yaxis_title="Base 100")
+                    st.plotly_chart(fig, use_container_width=True)
+                else: st.info("Datos insuficientes desde la fecha seleccionada.")
+            else: st.info("Añade activos para ver el histórico.")
 
         with c_donut:
             st.subheader("🍰 Asset Allocation")
@@ -385,6 +398,29 @@ with col_main:
                 st.plotly_chart(fig_pie, use_container_width=True)
             else: st.info("Cartera vacía.")
 
+        st.divider()
+
+        # MAPA CALOR
+        c_tree, c_bar = st.columns([1.5, 1.5])
+        with c_tree:
+            st.subheader("🗺️ Mapa de Calor")
+            if not df_final.empty:
+                fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %', 
+                                      color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
+                fig_tree.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else: st.info("Sin inversiones.")
+
+        with c_bar:
+            st.subheader("🏆 Ganadores (€)")
+            if not df_final.empty:
+                df_sorted = df_final.sort_values('Ganancia', ascending=True)
+                colors = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
+                fig_bar = go.Figure(go.Bar(x=df_sorted['Ganancia'], y=df_sorted['Nombre'], orientation='h', marker_color=colors, text=df_sorted['Ganancia'].apply(lambda x: f"{x:,.2f}€"), textposition='auto'))
+                fig_bar.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else: st.info("Sin inversiones.")
+
     # ------------------------------------------------------------------
     # 💰 LIQUIDEZ
     # ------------------------------------------------------------------
@@ -393,36 +429,46 @@ with col_main:
         st.markdown(f"""<div style="text-align:center; padding: 40px; background-color: #21262D; border-radius: 15px; margin-bottom: 30px; border: 1px solid #30363D;"><h1 style="font-size: 4.5rem; color:#FFFFFF; margin: 0;">{total_liquidez:,.2f} €</h1><p style="color:#8B949E;">SALDO DISPONIBLE</p></div>""", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            a = st.number_input("Ingreso (€)", 0.0, step=50.0, key="in")
-            if st.button("Ingresar", type="primary") and a>0:
-                update_liquidity_balance(int(cash_id), total_liquidez+a); st.toast("✅"); time.sleep(0.5); st.rerun()
+            with st.container(border=True):
+                st.markdown("### 📥 Ingresar")
+                a = st.number_input("Ingreso (€)", 0.0, step=50.0, key="in")
+                if st.button("Confirmar Ingreso", type="primary", use_container_width=True) and a > 0:
+                    update_liquidity_balance(int(cash_id), total_liquidez + a)
+                    st.toast(f"✅ Ingresados {a}€"); time.sleep(1); st.rerun()
         with c2:
-            b = st.number_input("Retiro (€)", 0.0, step=50.0, key="out")
-            if st.button("Retirar") and b>0:
-                if b>total_liquidez: st.error("Sin saldo")
-                else: update_liquidity_balance(int(cash_id), total_liquidez-b); st.toast("✅"); time.sleep(0.5); st.rerun()
+            with st.container(border=True):
+                st.markdown("### 📤 Retirar")
+                b = st.number_input("Retiro (€)", 0.0, step=50.0, key="out")
+                if st.button("Confirmar Retirada", use_container_width=True) and b > 0:
+                    if b > total_liquidez: st.error("Sin saldo.")
+                    else:
+                        update_liquidity_balance(int(cash_id), total_liquidez - b)
+                        st.toast(f"✅ Retirados {b}€"); time.sleep(1); st.rerun()
 
     # ------------------------------------------------------------------
     # ➕ INVERSIONES
     # ------------------------------------------------------------------
     elif pagina == "➕ Inversiones":
         st.title("➕ Gestión de Activos")
-        t1, t2, t3 = st.tabs(["🆕 Añadir", "💰 Operar", "✏️ Editar"])
+        t1, t2, t3 = st.tabs(["🆕 Añadir Nuevo", "💰 Operar", "✏️ Editar"])
         
         with t1:
             c1, c2 = st.columns([1, 1])
             with c1:
-                q = st.text_input("🔍 Buscar (ISIN/Ticker/Nombre):")
+                q = st.text_input("🔍 Buscar (Nombre/ISIN/Ticker):")
                 if st.button("Buscar") and q:
                     try:
                         res = search(sanitize_input(q))
-                        if 'quotes' in res: st.session_state['s'] = res['quotes']
-                    except: st.error("Error búsqueda")
+                        if 'quotes' in res and res['quotes']: st.session_state['s'] = res['quotes']
+                        else: st.warning("No encontrado."); st.session_state['s'] = []
+                    except: st.error("Error búsqueda."); st.session_state['s'] = []
+                
                 if 's' in st.session_state and st.session_state['s']:
-                    opts = {f"{x['symbol']} | {x.get('shortname','')}" : x for x in st.session_state['s']}
+                    opts = {f"{x['symbol']} | {x.get('shortname', x.get('longname','N/A'))} ({x.get('exchDisp','Unknown')})" : x for x in st.session_state['s']}
                     if opts:
-                        sel = st.selectbox("Elegir:", list(opts.keys()))
+                        sel = st.selectbox("Selecciona:", list(opts.keys()))
                         if sel in opts: st.session_state['sel_add'] = opts[sel]
+            
             with c2:
                 if 'sel_add' in st.session_state:
                     tk = st.session_state['sel_add']['symbol']
@@ -431,207 +477,136 @@ with col_main:
                         p = inf['last_price']
                         mon = inf['currency']
                         if p:
-                            st.metric("Precio", f"{p:.2f} {mon}")
-                            if mon != 'EUR': st.warning(f"⚠️ Activo en {mon}")
+                            st.metric("Precio Actual", f"{p:.2f} {mon}")
+                            if mon != 'EUR': st.warning(f"⚠️ Activo en **{mon}**. El sistema usará este precio.")
+                            
                             with st.form("new"):
-                                i = st.number_input("Invertido (EUR)", 0.0)
+                                i = st.number_input("Dinero Invertido (EUR)", 0.0)
                                 v = st.number_input("Valor Actual (EUR)", 0.0)
                                 pl = st.selectbox("Broker", ["MyInvestor", "XTB", "TR", "Degiro"])
-                                if st.form_submit_button("Guardar") and v>0:
-                                    sh = v/p
-                                    av = i/sh if sh>0 else 0
-                                    add_asset_db(tk, st.session_state['sel_add'].get('shortname',tk), sh, av, pl)
+                                if st.form_submit_button("Guardar") and v > 0:
+                                    sh = v / p
+                                    av = i / sh if sh > 0 else 0
+                                    add_asset_db(tk, st.session_state['sel_add'].get('longname',tk), sh, av, pl)
                                     st.success("Guardado"); time.sleep(1); st.rerun()
-                    except: st.error("Error al obtener precio")
+                    except: st.error("Error precio")
 
         with t2:
-            if df_final.empty: st.info("Añade activos.")
+            if df_final.empty: st.warning("Añade activos.")
             else:
-                nom = st.selectbox("Activo", df_final['Nombre'].unique())
-                r = df_final[df_final['Nombre']==nom].iloc[0]
-                st.info(f"Tienes {r['shares']:.4f} accs")
-                op = st.radio("Acción", ["Compra","Venta"], horizontal=True)
-                m = st.number_input("Euros", 0.0)
-                if m>0:
-                    sh = m/r['Precio Actual']
-                    if "Compra" in op:
-                        if st.button("Confirmar") and m<=total_liquidez:
-                            navg = ((r['shares']*r['avg_price'])+m)/(r['shares']+sh)
-                            update_asset_db(int(r['id']), r['shares']+sh, navg)
-                            update_liquidity_balance(int(cash_id), total_liquidez-m)
-                            st.rerun()
-                    else:
-                        if st.button("Confirmar"):
-                            ns = r['shares']-sh
-                            if ns<0.001: delete_asset_db(int(r['id']))
-                            else: update_asset_db(int(r['id']), ns, r['avg_price'])
-                            update_liquidity_balance(int(cash_id), total_liquidez+m)
-                            st.rerun()
+                c1, c2 = st.columns([1, 1])
+                with c1:
+                    nom = st.selectbox("Activo:", df_final['Nombre'].unique())
+                    row = df_final[df_final['Nombre']==nom].iloc[0]
+                    st.info(f"Tienes: `{row['shares']:.4f}` accs. Valor: `{row['Valor Acciones']:.2f} €`")
+                with c2:
+                    tipo = st.radio("Acción:", ["🟢 Comprar", "🔴 Vender"], horizontal=True)
+                    m = st.number_input("Importe (€)", 0.0)
+                    if m > 0:
+                        p = row['Precio Actual']
+                        sh_op = m / p
+                        if "Comprar" in tipo:
+                            if m > total_liquidez: st.error("Falta liquidez")
+                            elif st.button("Confirmar"):
+                                navg = ((row['shares']*row['avg_price'])+m)/(row['shares']+sh_op)
+                                update_asset_db(int(row['id']), row['shares']+sh_op, navg)
+                                update_liquidity_balance(int(cash_id), total_liquidez-m)
+                                st.rerun()
+                        else:
+                            if st.button("Confirmar"):
+                                nsh = row['shares'] - sh_op
+                                if nsh < 0.001: delete_asset_db(int(row['id']))
+                                else: update_asset_db(int(row['id']), nsh, row['avg_price'])
+                                update_liquidity_balance(int(cash_id), total_liquidez+m)
+                                st.rerun()
 
         with t3:
             if not df_final.empty:
-                e = st.selectbox("Editar", df_final['Nombre'], key='edd')
+                e = st.selectbox("Editar:", df_final['Nombre'], key='edd')
                 er = df_final[df_final['Nombre']==e].iloc[0]
                 nsh = st.number_input("Accs", value=float(er['shares']))
                 nav = st.number_input("Media", value=float(er['avg_price']))
-                if st.button("Guardar"): update_asset_db(int(er['id']), nsh, nav); st.rerun()
-                if st.button("Borrar"): delete_asset_db(int(er['id'])); st.rerun()
+                if st.button("Guardar Cambios"): update_asset_db(int(er['id']), nsh, nav); st.rerun()
+                if st.button("Eliminar", type="secondary"): delete_asset_db(int(er['id'])); st.rerun()
 
     # ------------------------------------------------------------------
     # 💬 ASESOR AI
     # ------------------------------------------------------------------
     elif pagina == "💬 Asesor AI":
-        st.title("💬 Asesor IA")
-        ctx = f"Liquidez: {total_liquidez}€. "
+        st.title("💬 Carterapro Bot")
+        ctx = f"Liquidez: {total_liquidez:.2f}€. "
         if not df_final.empty:
-            for i,r in df_final.iterrows(): ctx += f"{r['Nombre']}: {r['Valor Acciones']:.0f}€ (P&L: {r['Ganancia']:.0f}€). "
+            for i, r in df_final.iterrows():
+                ctx += f"[{r['Nombre']}: {r['Valor Acciones']:.2f}€, P&L {r['Ganancia']:.2f}€]. "
         
         for m in st.session_state.messages:
             with st.chat_message(m["role"]): st.markdown(m["content"])
-            
-        if p := st.chat_input("Pregunta..."):
-            st.session_state.messages.append({"role":"user","content":p})
-            with st.chat_message("user"): st.markdown(p)
-            
+
+        if prompt := st.chat_input("Duda sobre tu cartera..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"): st.markdown(prompt)
+
             if HAS_GROQ:
                 with st.chat_message("assistant"):
                     try:
-                        cli = openai.OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
-                        stream = cli.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":f"Eres asesor experto. Datos: {ctx}"}, *st.session_state.messages], stream=True)
-                        resp = st.write_stream(stream)
-                        st.session_state.messages.append({"role":"assistant","content":resp})
-                    except: st.error("Error AI")
+                        client = openai.OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
+                        stream = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "system", "content": f"Eres un asesor experto. Datos: {ctx}. Responde breve."}, *st.session_state.messages],
+                            stream=True
+                        )
+                        response = st.write_stream(stream)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                    except Exception as e: st.error(f"Error: {e}")
+            else: st.warning("Falta GROQ_API_KEY")
 
     # ------------------------------------------------------------------
-    # 🔮 MONTE CARLO (MEJORADO)
+    # 🔮 MONTE CARLO
     # ------------------------------------------------------------------
     elif pagina == "🔮 Monte Carlo":
-        st.title("🔮 Futuro (Monte Carlo)")
-        st.caption("Proyección basada en la volatilidad real de tus activos.")
-        
-        c_p, c_g = st.columns([1, 3])
-        with c_p:
-            ys = st.slider("Años", 5, 40, 20)
-            mu, sig = 0.07, 0.15 # Defaults
+        st.title("🔮 Futuro")
+        ys = st.slider("Años", 1, 30, 10)
+        if st.button("Simular", type="primary"):
+            mu, sigma = 0.07, 0.15
             if not history_data.empty:
-                log_ret = np.log(history_data/history_data.shift(1)).dropna()
-                mu = log_ret.mean().mean()*252
-                sig = log_ret.mean().std()*np.sqrt(252)
+                d = history_data.pct_change().dropna()
+                mu = d.mean().mean()*252; sigma = d.mean().std()*np.sqrt(252)
             
-            st.metric("Retorno Histórico", f"{mu*100:.1f}%")
-            st.metric("Volatilidad Histórica", f"{sig*100:.1f}%")
+            paths = []
+            for _ in range(30):
+                p = [total_inversiones]
+                for _ in range(int(ys*252)):
+                    p.append(p[-1]*np.exp((mu-0.5*sigma**2)/252 + sigma*np.sqrt(1/252)*np.random.normal(0,1)))
+                paths.append(p)
             
-            run = st.button("Simular", type="primary")
-
-        with c_g:
-            if run:
-                paths = []
-                S0 = patrimonio_total if patrimonio_total > 0 else 10000
-                dt = 1/252
-                
-                # 500 Escenarios
-                for _ in range(500):
-                    p = [S0]
-                    for _ in range(int(ys*252)):
-                        p.append(p[-1]*np.exp((mu-0.5*sig**2)*dt + sig*np.sqrt(dt)*np.random.normal(0,1)))
-                    paths.append(p)
-                
-                # Percentiles
-                paths = np.array(paths)
-                p10 = np.percentile(paths, 10, axis=0)
-                p50 = np.percentile(paths, 50, axis=0)
-                p90 = np.percentile(paths, 90, axis=0)
-                
-                x = np.linspace(0, ys, len(p50))
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=x, y=p90, mode='lines', line=dict(width=0), showlegend=False))
-                fig.add_trace(go.Scatter(x=x, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,204,150,0.2)', name='Rango Probable (80%)'))
-                fig.add_trace(go.Scatter(x=x, y=p50, mode='lines', line=dict(color='#00CC96', width=3), name='Escenario Base'))
-                
-                fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', title="Proyección de Riqueza", yaxis_title="€")
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.info(f"En el escenario base (mediana), tendrías **{p50[-1]:,.0f} €** dentro de {ys} años.")
+            fig = go.Figure()
+            x = np.linspace(0, ys, len(paths[0]))
+            for p in paths: fig.add_trace(go.Scatter(x=x, y=p, mode='lines', line=dict(color='rgba(0,204,150,0.1)'), showlegend=False))
+            fig.add_trace(go.Scatter(x=x, y=np.mean(paths,axis=0), mode='lines', line=dict(color='#00CC96', width=3)))
+            fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', title="Proyección Patrimonial")
+            st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------------------------------------------
-    # ⚖️ REBALANCEO (NUEVA LÓGICA NO-SELL)
+    # ⚖️ REBALANCEO
     # ------------------------------------------------------------------
     elif pagina == "⚖️ Rebalanceo":
-        st.title("⚖️ Planificador de Aportaciones (Smart DCA)")
-        st.caption("Calcula cuánto capital inyectar para rebalancear sin vender.")
-        
+        st.title("⚖️ Rebalanceo")
         if df_final.empty: st.warning("Sin activos.")
         else:
             c1,c2 = st.columns([1,1.5])
-            
+            ws = {}; tot = 0
             with c1:
-                st.subheader("1. Objetivos")
-                target_weights = {}
-                total_target = 0
                 for i,r in df_final.iterrows():
-                    w = st.number_input(f"{r['Nombre']} (%)", 0, 100, int(r['Peso %']), key=i)
-                    target_weights[r['Nombre']] = w
-                    total_target += w
-                
-                st.metric("Total Objetivo", f"{total_target}%", delta="OK" if total_target==100 else "Ajustar", delta_color="normal" if total_target==100 else "inverse")
-                
-                months = st.number_input("Plazo para completar (Meses)", 1, 60, 12)
-            
+                    w = st.number_input(f"{r['Nombre']} %", 0, 100, int(r['Peso %']), key=i)
+                    ws[r['Nombre']] = w; tot += w
+                st.metric("Total", f"{tot}%")
             with c2:
-                st.subheader("2. Plan de Aportación")
-                if total_target == 100:
-                    # Lógica de cálculo "No-Sell"
-                    # 1. Encontrar el activo más sobreponderado relativo (ratio valor/target)
-                    # Esto define el tamaño mínimo de la cartera equilibrada
-                    
-                    max_ratio = 0
-                    for i, r in df_final.iterrows():
-                        target_pct = target_weights[r['Nombre']] / 100
-                        if target_pct > 0:
-                            ratio = r['Valor Acciones'] / target_pct
-                            if ratio > max_ratio: max_ratio = ratio
-                    
-                    # Cartera objetivo mínima para no vender nada
-                    target_portfolio_size = max_ratio
-                    capital_needed = target_portfolio_size - df_final['Valor Acciones'].sum()
-                    
-                    # Si ya está equilibrado o necesitamos meter muy poco, ajustamos
-                    if capital_needed < 0: capital_needed = 0
-                    
-                    monthly_injection = capital_needed / months
-                    
-                    st.success(f"Para equilibrar sin vender, necesitas inyectar **{capital_needed:,.2f} €**.")
-                    st.metric("Aportación Mensual Sugerida", f"{monthly_injection:,.2f} €")
-                    
-                    # Desglose
-                    plan = []
-                    prompt_txt = f"Tengo una cartera de {patrimonio_total}€. Quiero rebalancear en {months} meses aportando {monthly_injection:.2f}€/mes para llegar a estos %:\n"
-                    
-                    for i, r in df_final.iterrows():
-                        target_val = target_portfolio_size * (target_weights[r['Nombre']] / 100)
-                        gap = target_val - r['Valor Acciones']
-                        monthly_buy = gap / months if gap > 0 else 0
-                        
-                        plan.append({
-                            "Activo": r['Nombre'],
-                            "Peso Actual": f"{r['Peso %']:.1f}%",
-                            "Objetivo": f"{target_weights[r['Nombre']]}%",
-                            "Comprar/Mes (€)": monthly_buy
-                        })
-                        prompt_txt += f"- {r['Nombre']}: Objetivo {target_weights[r['Nombre']]}%. Comprar {monthly_buy:.2f}€/mes.\n"
-                    
-                    st.dataframe(pd.DataFrame(plan))
-                    
-                    st.divider()
-                    with st.expander("🤖 Consultar a Gemini (Prompt)"):
-                        st.code(prompt_text + "\n¿Es este plan eficiente?", language='text')
-                    
-                    st.subheader("✅ Calendario")
-                    cols = st.columns(6)
-                    for m in range(1, months+1):
-                        with cols[(m-1)%6]:
-                            st.checkbox(f"Mes {m}", key=f"chk_{m}")
+                if tot==100 and st.button("Calcular", type="primary"):
+                    mc = max([r['Valor Acciones']/(ws[r['Nombre']]/100) for i,r in df_final.iterrows() if ws[r['Nombre']]>0]+[patrimonio_total])
+                    dat = [{'Activo':r['Nombre'], 'Comprar':max(0, (mc*ws[r['Nombre']]/100)-r['Valor Acciones'])} for i,r in df_final.iterrows()]
+                    fig = px.bar(pd.DataFrame(dat), x='Activo', y='Comprar')
+                    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig, use_container_width=True)
 
 # --- BOT NOTICIAS ---
 if st.session_state['show_news']:
