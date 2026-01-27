@@ -84,7 +84,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN
+# 🔄 LOGIN (SOLUCIONADO DOBLE CLICK)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -114,47 +114,77 @@ if not st.session_state['user']:
                     try:
                         res = supabase.auth.sign_in_with_password({"email": em, "password": pa})
                         st.session_state['user'] = res.user
-                        st.rerun()
+                        st.rerun() # Rerun inmediato
                     except: st.error("Credenciales incorrectas.")
         with tab2:
             with st.form("signup_form"):
                 em2 = st.text_input("Email")
                 pa2 = st.text_input("Pass", type="password")
                 if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado.")
+                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado. Revisa email.")
                     except: st.error("Error.")
     st.stop()
 
 user = st.session_state['user']
 
-# --- LÓGICA DE DATOS ROBUSTA ---
+# ==============================================================================
+# 🧠 LÓGICA DE DATOS ROBUSTA (EL CEREBRO DE LA APP)
+# ==============================================================================
+
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
+
+def safe_metric_calc(series):
+    """Calcula métricas financieras de forma segura"""
+    clean = series.dropna()
+    if len(clean) < 2: return 0, 0, 0, 0
+    
+    returns = clean.pct_change().dropna()
+    if returns.empty: return 0, 0, 0, 0
+    
+    # 1. Retorno Total
+    try: total_ret = (clean.iloc[-1] / clean.iloc[0]) - 1
+    except: total_ret = 0
+    
+    # 2. Volatilidad Anual
+    vol = returns.std() * np.sqrt(252)
+    
+    # 3. Sharpe Ratio (RF = 3%)
+    mean_ret = returns.mean() * 252
+    sharpe = (mean_ret - 0.03) / vol if vol > 0.001 else 0
+    
+    # 4. Max Drawdown
+    cum = (1 + returns).cumprod()
+    peak = cum.cummax()
+    dd = (cum - peak) / peak
+    max_dd = dd.min()
+    
+    return total_ret, vol, max_dd, sharpe
 
 @st.cache_data(ttl=60)
 def get_user_data(uid):
+    """Obtiene datos de Supabase"""
     assets = pd.DataFrame(supabase.table('assets').select("*").eq('user_id', uid).execute().data)
     liq_res = supabase.table('liquidity').select("*").eq('user_id', uid).execute().data
+    
     if not liq_res:
         supabase.table('liquidity').insert({"user_id": uid, "name": "Principal", "amount": 0.0}).execute()
         liquidity = 0.0; liq_id = 0
     else:
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
+        
     return assets, liquidity, liq_id
 
-# 🔥 FUNCIÓN CLAVE: PRECIOS EN TIEMPO REAL REAL (SIN CACHE CUANDO SE PIDE)
-# No usamos st.cache_data aquí para que el botón fuerce la recarga
+# 🔥 FUNCIÓN CLAVE: PRECIOS EN TIEMPO REAL REAL
 def get_real_time_prices(tickers):
     """Obtiene el precio del último segundo usando fast_info"""
     if not tickers: return {}
     prices = {}
     for t in tickers:
         try:
-            # fast_info es más rápido y preciso para el "ahora" que .download
             info = yf.Ticker(t).fast_info
             if 'last_price' in info and info['last_price']:
                 prices[t] = info['last_price']
             else:
-                # Fallback si falla fast_info
                 hist = yf.Ticker(t).history(period='1d')
                 prices[t] = hist['Close'].iloc[-1] if not hist.empty else 0.0
         except:
@@ -162,21 +192,38 @@ def get_real_time_prices(tickers):
     return prices
 
 @st.cache_data(ttl=300)
-def get_historical_data(tickers):
-    """Histórico para gráficos (Sincronizado)"""
+def get_historical_data_robust(tickers):
+    """
+    Descarga histórico y elimina zonas horarias para evitar conflictos en gráficos.
+    """
     if not tickers: return pd.DataFrame()
+    
+    # Asegurar SPY para benchmark
+    unique_tickers = list(set([t.strip().upper() for t in tickers] + ['SPY']))
+    
     try:
-        tickers_api = list(set(tickers + ['SPY']))
-        # Descargamos suficiente historia
-        data = yf.download(tickers_api, period="2y", interval="1d", progress=False)['Adj Close']
+        # Descarga
+        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False)['Adj Close']
         
-        # Si solo hay un ticker, data es una Series, convertir a DF
+        # Si devuelve Series (1 activo), convertir a DF
         if isinstance(data, pd.Series):
-            data = data.to_frame(name=tickers_api[0])
+            data = data.to_frame()
+            # A veces yfinance pierde el nombre de columna si es serie
+            if data.columns[0] == 'Adj Close' or data.columns[0] == 0:
+                data.columns = unique_tickers
+        
+        if not data.empty:
+            # 🔥 CORRECCIÓN CRÍTICA DE FECHAS: Eliminar Timezone 🔥
+            data.index = data.index.tz_localize(None)
             
-        data.index = data.index.tz_localize(None)
-        return data.fillna(method='ffill').fillna(method='bfill')
-    except: return pd.DataFrame()
+            # Rellenar huecos (findes)
+            data = data.fillna(method='ffill').fillna(method='bfill')
+            
+        return data
+        
+    except Exception as e:
+        print(f"Error descarga histórico: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
@@ -223,11 +270,11 @@ my_tickers = []
 if not df_assets.empty:
     my_tickers = df_assets['ticker'].unique().tolist()
     
-    # 1. Obtener Precios Actuales (Sin caché si se pulsa actualizar)
+    # 1. Precios Actuales (Tiempo Real)
     current_prices = get_real_time_prices(my_tickers)
     
-    # 2. Obtener Histórico (Cacheado, salvo force refresh)
-    history_raw = get_historical_data(my_tickers)
+    # 2. Histórico (Cacheado, robusto)
+    history_raw = get_historical_data_robust(my_tickers)
     
     # Mapear precios
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
@@ -261,7 +308,7 @@ patrimonio_total = total_inversiones + total_liquidez
 with st.sidebar:
     avatar = user.user_metadata.get('avatar_url', '')
     st.markdown(f"""
-    <div style='display:flex; align-items:center; gap:10px; padding:10px; background:#21262D; border-radius:8px;'>
+    <div style='display:flex; align-items:center; gap:10px; padding:10px; background:#21262D; border-radius:8px; border:1px solid #30363D;'>
         <img src='{avatar}' style='width:35px; border-radius:50%; border:2px solid #00CC96;'>
         <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● Online</span></div>
     </div><br>""", unsafe_allow_html=True)
@@ -305,32 +352,32 @@ with col_main:
         beta_portfolio = 1.0
         
         if not history_data.empty:
-            # 1. Simular la cartera actual sobre el pasado (Backtest teórico)
-            # Para simplificar: Promedio de los retornos de los activos actuales
+            # Simular la cartera actual
             daily_returns = history_data.pct_change().mean(axis=1).dropna()
             
-            # Volatilidad
-            vol_anual = daily_returns.std() * np.sqrt(252) * 100
-            
-            # Sharpe
-            rf = 0.03
-            mean_ret = daily_returns.mean() * 252
-            sharpe_ratio = (mean_ret - rf) / (vol_anual/100) if vol_anual > 0 else 0
-            
-            # Max Drawdown
-            cumulative = (1 + daily_returns).cumprod()
-            peak = cumulative.cummax()
-            dd = (cumulative - peak) / peak
-            max_drawdown = dd.min() * 100
-            
-            # Beta
-            if not benchmark_data.empty:
-                bench_ret = benchmark_data.pct_change().dropna()
-                common_idx = daily_returns.index.intersection(bench_ret.index)
-                if len(common_idx) > 20:
-                    cov = daily_returns.loc[common_idx].cov(bench_ret.loc[common_idx])
-                    var = bench_ret.loc[common_idx].var()
-                    beta_portfolio = cov / var if var != 0 else 1.0
+            if not daily_returns.empty:
+                # Volatilidad
+                vol_anual = daily_returns.std() * np.sqrt(252) * 100
+                
+                # Sharpe
+                rf = 0.03
+                mean_ret = daily_returns.mean() * 252
+                sharpe_ratio = (mean_ret - rf) / (vol_anual/100) if vol_anual > 0 else 0
+                
+                # Max Drawdown
+                cumulative = (1 + daily_returns).cumprod()
+                peak = cumulative.cummax()
+                dd = (cumulative - peak) / peak
+                max_drawdown = dd.min() * 100
+                
+                # Beta
+                if not benchmark_data.empty:
+                    bench_ret = benchmark_data.pct_change().dropna()
+                    common_idx = daily_returns.index.intersection(bench_ret.index)
+                    if len(common_idx) > 20:
+                        cov = daily_returns.loc[common_idx].cov(bench_ret.loc[common_idx])
+                        var = bench_ret.loc[common_idx].var()
+                        beta_portfolio = cov / var if var != 0 else 1.0
 
         with col_kpi:
             k1, k2, k3, k4 = st.columns(4)
@@ -363,38 +410,32 @@ with col_main:
         with c_chart:
             st.subheader("🏁 Rendimiento Relativo (Base 100)")
             if not history_data.empty:
-                # Alinear fechas
-                dt_start = pd.to_datetime(start_date)
+                # 🔥 FORZAR CONVERSIÓN A FECHA SIN TIMEZONE 🔥
+                dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
                 
-                # Intersección segura de índices
-                if not benchmark_data.empty:
-                    common_dates = history_data.index.intersection(benchmark_data.index)
-                    common_dates = common_dates[common_dates >= dt_start]
-                else:
-                    common_dates = history_data.index[history_data.index >= dt_start]
-
-                if len(common_dates) > 5:
-                    # Datos filtrados y alineados
-                    hist_aligned = history_data.loc[common_dates]
-                    
-                    # Cartera: Promedio de los activos (Base 100)
-                    # Calculamos el retorno acumulado desde el día 1 del gráfico
-                    port_ret = hist_aligned.pct_change().mean(axis=1).fillna(0)
+                # Filtrar con seguridad
+                hist_filt = history_data[history_data.index >= dt_start].copy()
+                
+                if not hist_filt.empty:
+                    # Cartera (Promedio equiponderado de precios normalizados)
+                    # Calculamos el cambio porcentual acumulado
+                    port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
                     port_cum = (1 + port_ret).cumprod() * 100
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
                     
                     if not benchmark_data.empty:
-                        bench_aligned = benchmark_data.loc[common_dates]
-                        bench_ret = bench_aligned.pct_change().fillna(0)
-                        bench_cum = (1 + bench_ret).cumprod() * 100
-                        fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
+                        bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
+                        if not bench_filt.empty:
+                            bench_ret = bench_filt.pct_change().fillna(0)
+                            bench_cum = (1 + bench_ret).cumprod() * 100
+                            fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
                     
                     fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', 
                                       hovermode="x unified", yaxis_title="Valor (Base 100)")
                     st.plotly_chart(fig, use_container_width=True)
-                else: st.info("Datos insuficientes en el rango seleccionado.")
+                else: st.info(f"Sin datos desde {dt_start.date()}.")
             else: st.info("Añade activos para ver el histórico.")
 
         with c_donut:
@@ -632,7 +673,12 @@ if st.session_state['show_news']:
         if news:
             for n in news:
                 im = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                h += f"""<div class="news-card">{im}<div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div><div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div></div>"""
+                h += f"""
+                <div class="news-card">
+                    {im}
+                    <div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div>
+                    <div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div>
+                </div>"""
         else: h = "<div style='text-align:center;color:#666;padding:20px'>💤 Sin noticias</div>"
         
         st.markdown(f"<div class='news-scroll-area'>{h}</div>", unsafe_allow_html=True)
