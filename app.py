@@ -5,7 +5,6 @@ import yfinance as yf
 from yahooquery import search
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.figure_factory as ff
 import numpy as np
 import time
 import seaborn as sns
@@ -16,45 +15,44 @@ from duckduckgo_search import DDGS
 import openai 
 
 # --- CONFIGURACIÓN GLOBAL ---
-st.set_page_config(page_title="Gestor Patrimonial Ultra", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Gestor Patrimonial Pro", layout="wide", page_icon="🏦", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🌑 DISEÑO DARK MODE PROFESIONAL
+# 🌑 DISEÑO DARK MODE (CSS v19)
 # ==============================================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
-    .stApp { background-color: #0E1117; color: #FAFAFA; font-family: 'Inter', sans-serif; }
-    h1, h2, h3, p, div, span, label { color: #E6E6E6 !important; }
+    .stApp { background-color: #0B0E11; color: #E0E0E0; font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { color: #FFFFFF !important; font-weight: 700; }
     
     /* Sidebar */
-    section[data-testid="stSidebar"] { background-color: #161B22; border-right: 1px solid #30363D; }
+    section[data-testid="stSidebar"] { background-color: #12151A; border-right: 1px solid #2D333B; }
 
     /* KPIs Flotantes */
     div[data-testid="stMetric"] {
-        background-color: #21262D; border: 1px solid #30363D; border-radius: 12px;
-        padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: transform 0.2s;
+        background: linear-gradient(145deg, #1C2128, #16191D);
+        border: 1px solid #2D333B; border-radius: 12px;
+        padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
-    div[data-testid="stMetric"]:hover { transform: translateY(-3px); border-color: #00CC96; }
-    div[data-testid="stMetricValue"] { font-size: 1.5rem !important; color: white !important; font-weight: 700; }
+    div[data-testid="stMetricValue"] { font-size: 1.6rem !important; color: white !important; font-weight: 700; }
+    div[data-testid="stMetricDelta"] svg { display: none; } 
     
     /* Botones */
-    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; }
+    .stButton>button { border-radius: 8px; font-weight: 600; border: 1px solid #30363D; background-color: #21262D; color: white; transition: 0.3s; height: 45px; }
     .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
-    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
+    .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: #000 !important; font-weight: 800; }
 
     /* Chat Noticias */
     .news-scroll-area { height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22; border: 1px solid #30363D; border-radius: 12px; margin-top: 15px; }
-    .news-card { background-color: #0d1117; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #30363D; display: flex; flex-direction: column; }
-    .news-img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; }
-    .news-title a { color: #58a6ff !important; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-    
+    .news-card { background-color: #21262D; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #30363D; display: flex; flex-direction: column; }
+    .news-img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; opacity: 0.8; }
+    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+    .news-source { font-size: 0.7rem; color: #00CC96; text-transform: uppercase; margin-bottom: 4px; }
+
     /* Gráficos */
     .js-plotly-plot .plotly .main-svg { background-color: rgba(0,0,0,0) !important; }
-    
-    /* Checkbox Calendario */
-    .stCheckbox label { font-size: 0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,10 +72,9 @@ supabase = init_supabase()
 if 'user' not in st.session_state: st.session_state['user'] = None
 if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
-if 'rebalance_plan' not in st.session_state: st.session_state['rebalance_plan'] = {}
 
 # ==============================================================================
-# 🔄 LOGIN
+# 🔄 LOGIN (ESTABILIZADO)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -99,32 +96,34 @@ if not st.session_state['user']:
                     st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
                 except Exception as e: st.error(f"Error: {e}")
             st.divider()
-            with st.form("login_form"):
+            with st.form("login"):
                 em = st.text_input("Email")
                 pa = st.text_input("Pass", type="password")
                 if st.form_submit_button("Entrar", use_container_width=True):
                     try:
                         res = supabase.auth.sign_in_with_password({"email": em, "password": pa})
-                        st.session_state['user'] = res.user; st.rerun()
+                        st.session_state['user'] = res.user
+                        st.rerun()
                     except: st.error("Credenciales incorrectas.")
         with tab2:
-            with st.form("signup_form"):
+            with st.form("signup"):
                 em2 = st.text_input("Email")
                 pa2 = st.text_input("Pass", type="password")
                 if st.form_submit_button("Crear Cuenta", use_container_width=True):
-                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Creado.")
+                    try: supabase.auth.sign_up({"email": em2, "password": pa2}); st.success("Cuenta creada.")
                     except: st.error("Error.")
     st.stop()
 
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 MOTOR DE DATOS
+# 🧠 MOTOR DE DATOS ROBUSTO
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
 
 def safe_metric_calc(series):
+    """Calcula métricas evitando errores de array vacío"""
     clean = series.dropna()
     if len(clean) < 5: return 0, 0, 0, 0
     returns = clean.pct_change().dropna()
@@ -151,13 +150,15 @@ def get_user_data(uid):
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
     return assets, liquidity, liq_id
 
+# Precio Actual (Sin Cache al pulsar refresh)
 def get_real_time_prices(tickers):
     if not tickers: return {}
     prices = {}
     for t in tickers:
         try:
             info = yf.Ticker(t).fast_info
-            if 'last_price' in info and info['last_price'] is not None: prices[t] = info['last_price']
+            if 'last_price' in info and info['last_price']:
+                prices[t] = info['last_price']
             else:
                 hist = yf.Ticker(t).history(period='2d')
                 prices[t] = hist['Close'].iloc[-1] if not hist.empty else 0.0
@@ -166,14 +167,20 @@ def get_real_time_prices(tickers):
 
 @st.cache_data(ttl=300)
 def get_historical_data_robust(tickers):
+    """Descarga histórico asegurando compatibilidad de fechas"""
     if not tickers: return pd.DataFrame()
-    unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
+    unique = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
     try:
-        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False)['Adj Close']
+        # Descarga
+        data = yf.download(unique, period="2y", interval="1d", progress=False)['Adj Close']
+        
+        # Convertir a DF si es Serie
         if isinstance(data, pd.Series):
             data = data.to_frame()
-            if data.columns[0] == 0: data.columns = unique_tickers
+            if data.columns[0] == 0: data.columns = unique
+            
         if not data.empty:
+            # 🔥 QUITAR TIMEZONE PARA EVITAR EL BUG DEL DASHBOARD 🔥
             data.index = data.index.tz_localize(None)
             data = data.fillna(method='ffill').fillna(method='bfill')
         return data
@@ -213,7 +220,7 @@ def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
     clear_cache()
 
-# --- PROCESAMIENTO ---
+# --- CARGA ---
 df_assets, total_liquidez, cash_id = get_user_data(user.id)
 df_final = pd.DataFrame()
 history_data = pd.DataFrame()
@@ -256,13 +263,16 @@ with st.sidebar:
         <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● Online</span></div>
     </div><br>""", unsafe_allow_html=True)
     
-    if st.button("🔄 Actualizar Datos", use_container_width=True, type="primary"): clear_cache(); st.rerun()
+    if st.button("🔄 Actualizar Datos", use_container_width=True, type="primary"):
+        clear_cache()
+        st.rerun()
+    
     st.divider()
     c1, c2 = st.columns([1,4])
     with c1: st.write("📰")
     with c2: st.session_state['show_news'] = st.toggle("Noticias", value=st.session_state['show_news'])
     
-    pagina = st.radio("MENÚ", ["📊 Dashboard", "💰 Liquidez", "➕ Inversiones", "💬 Asesor AI", "🔮 Monte Carlo", "⚖️ Rebalanceo"])
+    pagina = st.radio("MENÚ", ["📊 Dashboard & Alpha", "💰 Liquidez (Cash)", "➕ Inversiones", "💬 Asesor AI", "🔮 Monte Carlo", "⚖️ Rebalanceo"])
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Cerrar Sesión", use_container_width=True): supabase.auth.sign_out(); st.session_state['user']=None; st.rerun()
 
@@ -273,88 +283,124 @@ else: col_main = st.container(); col_news = st.container()
 with col_main:
     
     # ------------------------------------------------------------------
-    # 📊 DASHBOARD PRO
+    # 📊 DASHBOARD (ARREGLADO)
     # ------------------------------------------------------------------
-    if pagina == "📊 Dashboard":
-        st.title("📊 Control de Mando")
+    if pagina == "📊 Dashboard & Alpha":
+        st.title("📊 Control de Mando Integral")
         
-        col_kpi, col_date = st.columns([3, 1])
-        with col_date: 
-            start_date = st.date_input("📅 Análisis:", value=datetime.now()-timedelta(days=365))
+        c_date, c_score = st.columns([3, 1])
+        with c_date: 
+            # Fecha por defecto 1 año atrás
+            d_def = datetime.now() - timedelta(days=365)
+            start_date = st.date_input("📅 Rango de Análisis:", value=d_def)
         
-        vol_anual=0; sharpe_ratio=0; max_drawdown=0; cagr=0; beta_portfolio=1.0
+        # Cálculos Métricas
+        vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; beta = 1.0; health = 50
         
         if not history_data.empty:
+            # 1. Asegurar fecha sin zona horaria
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
-            hist_filt = history_data[history_data.index >= dt_start].copy()
+            
+            # 2. Filtrado seguro
+            try:
+                hist_filt = history_data[history_data.index >= dt_start].copy()
+            except:
+                hist_filt = history_data # Fallback si falla filtro
+            
             if not hist_filt.empty:
+                # Retorno diario promedio de activos
                 daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
+                
                 if not daily_returns.empty:
-                    total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
+                    # Métricas
+                    _, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
                     vol_anual *= 100; max_drawdown = max_drawdown_dec * 100
+                    
+                    # Score Salud
+                    health = 50
+                    if sharpe_ratio > 1: health += 15
+                    if max_drawdown > -20: health += 15
+                    if vol_anual < 15: health += 10
+                    if len(df_final) >= 3: health += 10
+                    
+                    # Beta
                     if not benchmark_data.empty:
-                        bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
-                        common = daily_returns.index.intersection(bench_ret.index)
-                        if len(common) > 10:
-                            cov = daily_returns.loc[common].cov(bench_ret.loc[common])
-                            var = bench_ret.loc[common].var()
-                            beta_portfolio = cov / var if var != 0 else 1.0
+                        try:
+                            bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
+                            common = daily_returns.index.intersection(bench_ret.index)
+                            if len(common) > 10:
+                                cov = daily_returns.loc[common].cov(bench_ret.loc[common])
+                                var = bench_ret.loc[common].var()
+                                beta = cov / var if var != 0 else 1.0
+                        except: pass
 
-        with col_kpi:
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("💰 Patrimonio", f"{patrimonio_total:,.2f} €", help="Suma de Inversiones + Liquidez")
-            if total_inversiones > 0:
-                pnl = df_final['Ganancia'].sum()
-                pct = (pnl / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum() > 0 else 0
-                k2.metric("📈 P&L", f"{pnl:+,.2f} €", f"{pct:+.2f}%", delta_color="normal" if pnl>=0 else "inverse", help="Ganancia o Pérdida no realizada")
-            else: k2.metric("📈 P&L", "0.00 €")
-            k3.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse", help="Máxima caída desde el pico más alto en el periodo seleccionado")
-            k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}", help="Rendimiento ajustado al riesgo. >1 es bueno.")
+        with c_score:
+            st.metric("🛡️ Salud Cartera", f"{health}/100", help="Puntuación algorítmica basada en diversificación y riesgo.")
+
+        # KPIs
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("💰 Patrimonio Neto", f"{patrimonio_total:,.2f} €", help="Total Activos + Liquidez")
+        
+        if total_inversiones > 0:
+            pnl = df_final['Ganancia'].sum()
+            pct = (pnl / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum()>0 else 0
+            k2.metric("📈 P&L Latente", f"{pnl:+,.2f} €", f"{pct:+.2f}%", delta_color="normal" if pnl>=0 else "inverse", help="Ganancia no realizada")
+        else: k2.metric("📈 P&L Latente", "0.00 €")
+        
+        k3.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse", help="La peor caída que has sufrido en este periodo")
+        k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}", help=">1: Bueno. Cuánto retorno obtienes por cada unidad de riesgo.")
 
         st.divider()
+
+        # GRÁFICO RENDIMIENTO
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
             st.subheader("🏁 Rendimiento (Base 100)")
-            if not history_data.empty:
-                hist_filt = history_data[history_data.index >= dt_start].copy()
-                if not hist_filt.empty:
-                    port_cum = (1 + hist_filt.pct_change().mean(axis=1).fillna(0)).cumprod() * 100
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Cartera", line=dict(color='#00CC96', width=2)))
-                    if not benchmark_data.empty:
-                        bench_cum = (1 + benchmark_data[benchmark_data.index >= dt_start].pct_change().fillna(0)).cumprod() * 100
+            if not history_data.empty and 'hist_filt' in locals() and not hist_filt.empty:
+                port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
+                port_cum = (1 + port_ret).cumprod() * 100
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
+                
+                if not benchmark_data.empty:
+                    try:
+                        bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
+                        bench_cum = (1 + bench_filt.pct_change().fillna(0)).cumprod() * 100
                         fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
-                    fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Base 100")
-                    st.plotly_chart(fig, use_container_width=True)
-                else: st.info("Sin datos suficientes.")
-            else: st.info("Sin histórico.")
+                    except: pass
+                
+                fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Base 100")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No hay datos históricos suficientes para graficar. Dale a 'Actualizar Datos'.")
 
         with c_donut:
             st.subheader("🍰 Asset Allocation")
             if patrimonio_total > 0:
                 labels = ['Liquidez'] + df_final['Nombre'].tolist() if not df_final.empty else ['Liquidez']
                 values = [total_liquidez] + df_final['Valor Acciones'].tolist() if not df_final.empty else [total_liquidez]
-                fig = px.pie(values=values, names=labels, hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig.update_layout(template="plotly_dark", height=320, showlegend=True, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig, use_container_width=True)
+                fig_pie = px.pie(names=labels, values=values, hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_pie.update_layout(template="plotly_dark", height=320, showlegend=True, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_pie, use_container_width=True)
             else: st.info("Cartera vacía.")
 
     # ------------------------------------------------------------------
     # 💰 LIQUIDEZ
     # ------------------------------------------------------------------
-    elif pagina == "💰 Liquidez":
+    elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Gestión de Liquidez")
-        st.markdown(f"<div style='text-align:center; padding:40px; background:#21262D; border-radius:15px; border:1px solid #30363D;'><h1 style='color:white'>{total_liquidez:,.2f} €</h1><p>SALDO DISPONIBLE</p></div>", unsafe_allow_html=True)
+        st.markdown(f"""<div style="text-align:center; padding: 40px; background-color: #21262D; border-radius: 15px; margin-bottom: 30px; border: 1px solid #30363D;"><h1 style="font-size: 4.5rem; color:#FFFFFF; margin: 0;">{total_liquidez:,.2f} €</h1><p style="color:#8B949E;">SALDO DISPONIBLE</p></div>""", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            a = st.number_input("Ingreso (€)", 0.0, step=50.0)
+            a = st.number_input("Ingreso (€)", 0.0, step=50.0, key="in")
             if st.button("Ingresar", type="primary") and a>0:
-                update_liquidity_balance(int(cash_id), total_liquidez+a); st.toast("Hecho"); time.sleep(0.5); st.rerun()
+                update_liquidity_balance(int(cash_id), total_liquidez+a); st.toast("✅"); time.sleep(0.5); st.rerun()
         with c2:
-            b = st.number_input("Retiro (€)", 0.0, step=50.0)
+            b = st.number_input("Retiro (€)", 0.0, step=50.0, key="out")
             if st.button("Retirar") and b>0:
                 if b>total_liquidez: st.error("Sin saldo")
-                else: update_liquidity_balance(int(cash_id), total_liquidez-b); st.toast("Hecho"); time.sleep(0.5); st.rerun()
+                else: update_liquidity_balance(int(cash_id), total_liquidez-b); st.toast("✅"); time.sleep(0.5); st.rerun()
 
     # ------------------------------------------------------------------
     # ➕ INVERSIONES
@@ -362,11 +408,12 @@ with col_main:
     elif pagina == "➕ Inversiones":
         st.title("➕ Gestión de Activos")
         t1, t2, t3 = st.tabs(["🆕 Añadir", "💰 Operar", "✏️ Editar"])
+        
         with t1:
-            c1, c2 = st.columns(2)
+            c1, c2 = st.columns([1, 1])
             with c1:
-                q = st.text_input("Buscar Activo:")
-                if st.button("🔍") and q:
+                q = st.text_input("🔍 Buscar (ISIN/Ticker/Nombre):")
+                if st.button("Buscar") and q:
                     try:
                         res = search(sanitize_input(q))
                         if 'quotes' in res: st.session_state['s'] = res['quotes']
@@ -395,7 +442,7 @@ with col_main:
                                     av = i/sh if sh>0 else 0
                                     add_asset_db(tk, st.session_state['sel_add'].get('shortname',tk), sh, av, pl)
                                     st.success("Guardado"); time.sleep(1); st.rerun()
-                    except: st.error("Error datos")
+                    except: st.error("Error al obtener precio")
 
         with t2:
             if df_final.empty: st.info("Añade activos.")
@@ -456,178 +503,152 @@ with col_main:
                     except: st.error("Error AI")
 
     # ------------------------------------------------------------------
-    # 🔮 MONTE CARLO (GRÁFICO)
+    # 🔮 MONTE CARLO (MEJORADO)
     # ------------------------------------------------------------------
     elif pagina == "🔮 Monte Carlo":
-        st.title("🔮 Simulación Monte Carlo Avanzada")
-        st.caption("Proyección probabilística basada en la volatilidad histórica real de tu cartera.")
+        st.title("🔮 Futuro (Monte Carlo)")
+        st.caption("Proyección basada en la volatilidad real de tus activos.")
         
-        ys = st.slider("Años a simular", 5, 40, 20)
-        
-        if st.button("Ejecutar Simulación", type="primary"):
-            mu, sigma = 0.07, 0.15 # Default
+        c_p, c_g = st.columns([1, 3])
+        with c_p:
+            ys = st.slider("Años", 5, 40, 20)
+            mu, sig = 0.07, 0.15 # Defaults
             if not history_data.empty:
-                # Log returns para mayor precisión en MC
-                log_ret = np.log(history_data / history_data.shift(1)).dropna()
-                # Peso equiponderado simple
-                port_log_ret = log_ret.mean(axis=1)
-                mu = port_log_ret.mean() * 252
-                sigma = port_log_ret.std() * np.sqrt(252)
+                log_ret = np.log(history_data/history_data.shift(1)).dropna()
+                mu = log_ret.mean().mean()*252
+                sig = log_ret.mean().std()*np.sqrt(252)
             
-            st.metric("Retorno Histórico (μ)", f"{mu*100:.2f}%")
-            st.metric("Volatilidad Histórica (σ)", f"{sigma*100:.2f}%")
+            st.metric("Retorno Histórico", f"{mu*100:.1f}%")
+            st.metric("Volatilidad Histórica", f"{sig*100:.1f}%")
             
-            # Vectorización
-            sims = 1000
-            days = int(ys * 252)
-            dt = 1/252
-            S0 = patrimonio_total if patrimonio_total > 0 else 10000
-            
-            # Matriz de shocks
-            Z = np.random.normal(0, 1, (days, sims))
-            # Drift
-            drift = (mu - 0.5 * sigma**2) * dt
-            # Volatility shock
-            diffusion = sigma * np.sqrt(dt) * Z
-            
-            # Daily returns factor
-            daily_factor = np.exp(drift + diffusion)
-            
-            # Price paths
-            price_paths = np.zeros((days + 1, sims))
-            price_paths[0] = S0
-            
-            for t in range(1, days + 1):
-                price_paths[t] = price_paths[t-1] * daily_factor[t-1]
+            run = st.button("Simular", type="primary")
+
+        with c_g:
+            if run:
+                paths = []
+                S0 = patrimonio_total if patrimonio_total > 0 else 10000
+                dt = 1/252
                 
-            # Percentiles
-            p10 = np.percentile(price_paths, 10, axis=1)
-            p50 = np.percentile(price_paths, 50, axis=1)
-            p90 = np.percentile(price_paths, 90, axis=1)
-            
-            x = np.linspace(0, ys, days+1)
-            
-            fig = go.Figure()
-            # Fan Chart
-            fig.add_trace(go.Scatter(x=x, y=p90, mode='lines', line=dict(width=0), showlegend=False, name='P90'))
-            fig.add_trace(go.Scatter(x=x, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,204,150,0.2)', name='Rango 80% Probabilidad'))
-            fig.add_trace(go.Scatter(x=x, y=p50, mode='lines', line=dict(color='#00CC96', width=3), name='Mediana'))
-            
-            fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', title="Cono de Probabilidad", yaxis_title="Valor (€)", xaxis_title="Años")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Histograma Final
-            final_values = price_paths[-1]
-            fig_hist = px.histogram(final_values, nbins=50, title="Distribución de Resultados Finales")
-            fig_hist.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', showlegend=False)
-            fig_hist.add_vline(x=np.mean(final_values), line_dash="dash", line_color="white", annotation_text="Media")
-            st.plotly_chart(fig_hist, use_container_width=True)
+                # 500 Escenarios
+                for _ in range(500):
+                    p = [S0]
+                    for _ in range(int(ys*252)):
+                        p.append(p[-1]*np.exp((mu-0.5*sig**2)*dt + sig*np.sqrt(dt)*np.random.normal(0,1)))
+                    paths.append(p)
+                
+                # Percentiles
+                paths = np.array(paths)
+                p10 = np.percentile(paths, 10, axis=0)
+                p50 = np.percentile(paths, 50, axis=0)
+                p90 = np.percentile(paths, 90, axis=0)
+                
+                x = np.linspace(0, ys, len(p50))
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=x, y=p90, mode='lines', line=dict(width=0), showlegend=False))
+                fig.add_trace(go.Scatter(x=x, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,204,150,0.2)', name='Rango Probable (80%)'))
+                fig.add_trace(go.Scatter(x=x, y=p50, mode='lines', line=dict(color='#00CC96', width=3), name='Escenario Base'))
+                
+                fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', title="Proyección de Riqueza", yaxis_title="€")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.info(f"En el escenario base (mediana), tendrías **{p50[-1]:,.0f} €** dentro de {ys} años.")
 
     # ------------------------------------------------------------------
-    # ⚖️ REBALANCEO INTELIGENTE DCA
+    # ⚖️ REBALANCEO (NUEVA LÓGICA NO-SELL)
     # ------------------------------------------------------------------
     elif pagina == "⚖️ Rebalanceo":
-        st.title("⚖️ Planificador de Rebalanceo DCA")
+        st.title("⚖️ Planificador de Aportaciones (Smart DCA)")
+        st.caption("Calcula cuánto capital inyectar para rebalancear sin vender.")
         
-        if df_final.empty: st.warning("Añade activos primero.")
+        if df_final.empty: st.warning("Sin activos.")
         else:
-            c1, c2 = st.columns([1, 1.5])
+            c1,c2 = st.columns([1,1.5])
             
             with c1:
-                st.subheader("1. Define Objetivos")
+                st.subheader("1. Objetivos")
                 target_weights = {}
                 total_target = 0
-                for i, r in df_final.iterrows():
-                    # Input de peso objetivo
-                    w = st.number_input(f"{r['Nombre']} (%)", 0, 100, int(r['Peso %']), key=f"w_{i}")
+                for i,r in df_final.iterrows():
+                    w = st.number_input(f"{r['Nombre']} (%)", 0, 100, int(r['Peso %']), key=i)
                     target_weights[r['Nombre']] = w
                     total_target += w
                 
-                st.metric("Total Asignado", f"{total_target}%", delta="OK" if total_target==100 else "Ajustar", delta_color="normal" if total_target==100 else "inverse")
+                st.metric("Total Objetivo", f"{total_target}%", delta="OK" if total_target==100 else "Ajustar", delta_color="normal" if total_target==100 else "inverse")
                 
-                months = st.number_input("Plazo para rebalancear (Meses)", 1, 60, 12, help="En cuántos meses quieres alcanzar estos porcentajes mediante aportaciones.")
-                monthly_contribution = st.number_input("Aportación Mensual Total (€)", 0, 10000, 500)
-
+                months = st.number_input("Plazo para completar (Meses)", 1, 60, 12)
+            
             with c2:
-                st.subheader("2. Estrategia de Aportación")
-                if total_target == 100 and monthly_contribution > 0:
+                st.subheader("2. Plan de Aportación")
+                if total_target == 100:
+                    # Lógica de cálculo "No-Sell"
+                    # 1. Encontrar el activo más sobreponderado relativo (ratio valor/target)
+                    # Esto define el tamaño mínimo de la cartera equilibrada
                     
-                    # Calcular Patrimonio Futuro Estimado (sin crecimiento para simplificar el rebalanceo de flujos)
-                    future_wealth = patrimonio_total + (monthly_contribution * months)
+                    max_ratio = 0
+                    for i, r in df_final.iterrows():
+                        target_pct = target_weights[r['Nombre']] / 100
+                        if target_pct > 0:
+                            ratio = r['Valor Acciones'] / target_pct
+                            if ratio > max_ratio: max_ratio = ratio
                     
-                    plan_data = []
-                    prompt_text = "Tengo esta cartera y quiero rebalancearla en " + str(months) + " meses aportando " + str(monthly_contribution) + "€/mes:\n"
+                    # Cartera objetivo mínima para no vender nada
+                    target_portfolio_size = max_ratio
+                    capital_needed = target_portfolio_size - df_final['Valor Acciones'].sum()
+                    
+                    # Si ya está equilibrado o necesitamos meter muy poco, ajustamos
+                    if capital_needed < 0: capital_needed = 0
+                    
+                    monthly_injection = capital_needed / months
+                    
+                    st.success(f"Para equilibrar sin vender, necesitas inyectar **{capital_needed:,.2f} €**.")
+                    st.metric("Aportación Mensual Sugerida", f"{monthly_injection:,.2f} €")
+                    
+                    # Desglose
+                    plan = []
+                    prompt_txt = f"Tengo una cartera de {patrimonio_total}€. Quiero rebalancear en {months} meses aportando {monthly_injection:.2f}€/mes para llegar a estos %:\n"
                     
                     for i, r in df_final.iterrows():
-                        current_val = r['Valor Acciones']
-                        target_val = future_wealth * (target_weights[r['Nombre']] / 100)
-                        
-                        # Déficit total a cubrir
-                        gap = target_val - current_val
-                        
-                        # Si el gap es positivo, hay que comprar. Si es negativo, no compramos (sobra peso)
-                        # DCA puro: Solo compras, no ventas.
+                        target_val = target_portfolio_size * (target_weights[r['Nombre']] / 100)
+                        gap = target_val - r['Valor Acciones']
                         monthly_buy = gap / months if gap > 0 else 0
                         
-                        plan_data.append({
+                        plan.append({
                             "Activo": r['Nombre'],
                             "Peso Actual": f"{r['Peso %']:.1f}%",
                             "Objetivo": f"{target_weights[r['Nombre']]}%",
-                            "Aportación Mensual Sugerida": monthly_buy
+                            "Comprar/Mes (€)": monthly_buy
                         })
-                        
-                        prompt_text += f"- {r['Nombre']}: Actual {r['Peso %']:.1f}%, Objetivo {target_weights[r['Nombre']]}%. Sugerencia: Comprar {monthly_buy:.2f}€/mes.\n"
-
-                    df_plan = pd.DataFrame(plan_data)
+                        prompt_txt += f"- {r['Nombre']}: Objetivo {target_weights[r['Nombre']]}%. Comprar {monthly_buy:.2f}€/mes.\n"
                     
-                    # Normalizar aportaciones al presupuesto real
-                    total_suggested = df_plan['Aportación Mensual Sugerida'].sum()
-                    if total_suggested > 0:
-                        df_plan['Aportación Real (€)'] = (df_plan['Aportación Mensual Sugerida'] / total_suggested) * monthly_contribution
-                    else:
-                        df_plan['Aportación Real (€)'] = 0
-                    
-                    st.dataframe(df_plan[['Activo', 'Peso Actual', 'Objetivo', 'Aportación Real (€)']], use_container_width=True)
-                    
-                    # GRÁFICO DEL PLAN
-                    fig = px.bar(df_plan, x='Aportación Real (€)', y='Activo', orientation='h', text_auto='.2f', title="Tu Hoja de Ruta Mensual")
-                    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.dataframe(pd.DataFrame(plan))
                     
                     st.divider()
+                    with st.expander("🤖 Consultar a Gemini (Prompt)"):
+                        st.code(prompt_text + "\n¿Es este plan eficiente?", language='text')
                     
-                    # GENERADOR DE PROMPT
-                    with st.expander("🤖 Consultar Opinión a Gemini (Prompt)"):
-                        st.code(prompt_text + "\n¿Es este plan de rebalanceo eficiente o estoy asumiendo mucho riesgo de concentración?", language='text')
-                    
-                    st.divider()
-                    
-                    # CALENDARIO DE CHECKS (Visual)
-                    st.subheader("✅ Calendario de Cumplimiento")
-                    # Crear columnas para los meses
-                    cols = st.columns(min(months, 6)) # Max 6 columnas visuales
-                    for m in range(1, months + 1):
-                        col_idx = (m - 1) % 6
-                        with cols[col_idx]:
-                            # Checkbox visual (No persistente en esta versión simple sin tabla extra)
-                            st.checkbox(f"Mes {m}", key=f"check_m_{m}")
+                    st.subheader("✅ Calendario")
+                    cols = st.columns(6)
+                    for m in range(1, months+1):
+                        with cols[(m-1)%6]:
+                            st.checkbox(f"Mes {m}", key=f"chk_{m}")
 
-# --- NEWS FIXED ---
+# --- BOT NOTICIAS ---
 if st.session_state['show_news']:
     with col_news:
-        c1,c2=st.columns([3,1])
+        c1, c2 = st.columns([3, 1])
         with c1: st.markdown("### 🤖 News")
         with c2: 
-            if st.button("🔄"): clear_cache(); st.rerun()
+            if st.button("🔄", key="ref"): clear_cache(); st.rerun()
         
-        tm = {'Hoy':'d','Semana':'w'}; sel = st.pills("Filtro", list(tm.keys()), default="Hoy")
+        tm = {'Hoy': 'd', 'Semana': 'w'}; sel = st.pills("Filtro", list(tm.keys()), default="Hoy", label_visibility="collapsed")
         news = get_global_news(my_tickers, tm[sel])
         
-        h=""
+        h = ""
         if news:
             for n in news:
                 im = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                h+=f"<div class='news-card'>{im}<div class='news-source'>{n.get('source','')}</div><div class='news-title'><a href='{n['url']}' target='_blank'>{n['title']}</a></div></div>"
-        else: h="<div style='text-align:center;color:#666;padding:20px'>💤 Nada reciente</div>"
+                h += f"""<div class="news-card">{im}<div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div><div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div></div>"""
+        else: h = "<div style='text-align:center;color:#666;padding:20px'>💤 Sin noticias</div>"
         
         st.markdown(f"<div class='news-scroll-area'>{h}</div>", unsafe_allow_html=True)
