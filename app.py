@@ -43,22 +43,23 @@ st.markdown("""
     .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
     .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
 
-    /* Chat Noticias */
+    /* Chat Noticias - CORREGIDO VISUAL */
     .news-scroll-area {
-        height: 68vh; overflow-y: auto; padding: 15px; background-color: #161B22;
+        height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22;
         border: 1px solid #30363D; border-radius: 12px; margin-top: 15px;
     }
     .news-scroll-area::-webkit-scrollbar { width: 6px; }
     .news-scroll-area::-webkit-scrollbar-thumb { background: #30363D; border-radius: 4px; }
     
     .news-card {
-        background-color: #0d1117; border-radius: 8px; padding: 12px; margin-bottom: 12px;
+        background-color: #21262D; border-radius: 8px; padding: 12px; margin-bottom: 12px;
         border: 1px solid #30363D; display: flex; flex-direction: column; transition: transform 0.2s;
     }
     .news-card:hover { transform: translateY(-2px); border-color: #00CC96; }
     .news-img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; opacity: 0.8; }
-    .news-title a { color: #58a6ff !important; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-    .news-source { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; }
+    .news-title a { color: #FFFFFF !important; text-decoration: none; font-weight: 600; font-size: 0.95rem; display: block; line-height: 1.3; }
+    .news-title a:hover { color: #00CC96 !important; }
+    .news-source { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; font-weight: bold; }
 
     /* Gráficos Limpios */
     .js-plotly-plot .plotly .main-svg { background-color: rgba(0,0,0,0) !important; }
@@ -83,7 +84,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN (SOLUCIONADO)
+# 🔄 LOGIN
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -126,31 +127,25 @@ if not st.session_state['user']:
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 MOTOR DE DATOS ROBUSTO
+# 🧠 MOTOR DE DATOS (CORE)
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
 
 def safe_metric_calc(series):
-    """Calcula métricas financieras sin errores de división por cero"""
     clean = series.dropna()
-    if len(clean) < 5: return 0, 0, 0, 0 # Necesitamos mínimos datos
-    
+    if len(clean) < 5: return 0, 0, 0, 0
     returns = clean.pct_change().dropna()
     if returns.empty: return 0, 0, 0, 0
-    
     try: total_ret = (clean.iloc[-1] / clean.iloc[0]) - 1
     except: total_ret = 0
-    
     vol = returns.std() * np.sqrt(252)
     mean_ret = returns.mean() * 252
     sharpe = (mean_ret - 0.03) / vol if vol > 0.001 else 0
-    
     cum = (1 + returns).cumprod()
     peak = cum.cummax()
     dd = (cum - peak) / peak
     max_dd = dd.min()
-    
     return total_ret, vol, max_dd, sharpe
 
 @st.cache_data(ttl=60)
@@ -164,50 +159,39 @@ def get_user_data(uid):
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
     return assets, liquidity, liq_id
 
-# Función no cacheada para actualización manual
+# PRECIO ACTUAL SIN CACHE (Al pulsar botón)
 def get_real_time_prices(tickers):
     if not tickers: return {}
     prices = {}
     for t in tickers:
         try:
-            # Intentamos fast_info primero
             info = yf.Ticker(t).fast_info
             if 'last_price' in info and info['last_price'] is not None:
                 prices[t] = info['last_price']
             else:
-                # Fallback a history
-                hist = yf.Ticker(t).history(period='2d') # 2 días por si es lunes mañana
-                if not hist.empty:
-                    prices[t] = hist['Close'].iloc[-1]
-                else:
-                    prices[t] = 0.0
+                hist = yf.Ticker(t).history(period='2d')
+                prices[t] = hist['Close'].iloc[-1] if not hist.empty else 0.0
         except:
             prices[t] = 0.0
     return prices
 
 @st.cache_data(ttl=300)
 def get_historical_data_robust(tickers):
-    """
-    Descarga histórico y elimina zonas horarias para evitar conflictos en gráficos.
-    """
+    """Descarga histórico blindada"""
     if not tickers: return pd.DataFrame()
     
-    # Limpiamos tickers y añadimos SPY
     unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
-    
     try:
-        # Descarga masiva para velocidad
+        # Descarga
         data = yf.download(unique_tickers, period="2y", interval="1d", progress=False)['Adj Close']
         
-        # Corrección si devuelve Series en lugar de DataFrame
         if isinstance(data, pd.Series):
             data = data.to_frame()
             if data.columns[0] == 0: data.columns = unique_tickers
             
         if not data.empty:
-            # 🔥 ELIMINAR ZONA HORARIA (CRÍTICO) 🔥
+            # 🔥 QUITAR TIMEZONE PARA QUE COINCIDAN FECHAS 🔥
             data.index = data.index.tz_localize(None)
-            # Rellenar festivos
             data = data.fillna(method='ffill').fillna(method='bfill')
             
         return data
@@ -218,8 +202,8 @@ def get_historical_data_robust(tickers):
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
     results = []
-    # Si hay tickers, buscamos el primero, si no general
-    query = f"{tickers[0]} noticias mercado" if tickers else "Bolsa economia noticias"
+    # Búsqueda más genérica si falla la específica
+    query = f"{tickers[0]} bolsa" if tickers else "Mercado financiero"
     try:
         with DDGS() as ddgs:
             raw = list(ddgs.news(query, region="es-es", safesearch="off", timelimit=time_filter, max_results=8))
@@ -233,7 +217,7 @@ def get_global_news(tickers, time_filter='d'):
 
 def clear_cache(): st.cache_data.clear()
 
-# --- DB OPERACIONES ---
+# --- DB FUNCTIONS ---
 def add_asset_db(t, n, s, p, pl):
     supabase.table('assets').insert({"user_id": user.id, "ticker": t, "nombre": n, "shares": s, "avg_price": p, "platform": pl}).execute()
     clear_cache()
@@ -250,7 +234,7 @@ def update_liquidity_balance(liq_id, new_amount):
     supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
     clear_cache()
 
-# --- CARGA DE DATOS AL INICIO ---
+# --- PROCESO DE CARGA ---
 df_assets, total_liquidez, cash_id = get_user_data(user.id)
 df_final = pd.DataFrame()
 history_data = pd.DataFrame()
@@ -258,16 +242,13 @@ benchmark_data = pd.Series()
 my_tickers = []
 
 if not df_assets.empty:
-    # Obtener tickers limpios
-    my_tickers = [str(t).strip().upper() for t in df_assets['ticker'].unique().tolist()]
-    
-    # 1. Precios Actuales (Tiempo real si se pide)
+    my_tickers = df_assets['ticker'].unique().tolist()
+    # 1. Precios (Tiempo real al cargar o actualizar)
     current_prices = get_real_time_prices(my_tickers)
-    
-    # 2. Histórico (Cacheado)
+    # 2. Histórico
     history_raw = get_historical_data_robust(my_tickers)
     
-    # Procesar Tabla Principal
+    # Tabla
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
     df_assets['Valor Acciones'] = df_assets['shares'] * df_assets['Precio Actual']
     df_assets['Dinero Invertido'] = df_assets['shares'] * df_assets['avg_price']
@@ -275,14 +256,12 @@ if not df_assets.empty:
     df_assets['Rentabilidad %'] = df_assets.apply(
         lambda r: (r['Ganancia'] / r['Dinero Invertido'] * 100) if r['Dinero Invertido'] > 0 else 0, axis=1
     )
-    
     total_inv_val = df_assets['Valor Acciones'].sum()
     df_assets['Peso %'] = df_assets.apply(
         lambda r: (r['Valor Acciones'] / total_inv_val * 100) if total_inv_val > 0 else 0, axis=1
     )
     df_final = df_assets.rename(columns={'nombre': 'Nombre'})
     
-    # Separar Benchmark del Histórico
     if not history_raw.empty:
         if 'SPY' in history_raw.columns:
             benchmark_data = history_raw['SPY']
@@ -302,13 +281,11 @@ with st.sidebar:
         <div style='line-height:1.2'><b style='color:white'>{user.user_metadata.get('full_name','Inversor')}</b><br><span style='font-size:0.7em; color:#00CC96'>● Online</span></div>
     </div><br>""", unsafe_allow_html=True)
     
-    # BOTÓN DE ACTUALIZACIÓN
     if st.button("🔄 Actualizar Datos", use_container_width=True, type="primary"):
         clear_cache()
         st.rerun()
     
     st.divider()
-    
     c1, c2 = st.columns([1,4])
     with c1: st.write("📰")
     with c2: st.session_state['show_news'] = st.toggle("Noticias", value=st.session_state['show_news'])
@@ -324,44 +301,32 @@ else: col_main = st.container(); col_news = st.container()
 with col_main:
     
     # ------------------------------------------------------------------
-    # 📊 PÁGINA DASHBOARD
+    # 📊 DASHBOARD (CORREGIDO)
     # ------------------------------------------------------------------
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Control de Mando Integral")
         
-        # Filtro fecha
         col_kpi, col_date = st.columns([3, 1])
         with col_date: 
-            start_date = st.date_input("📅 Rango de Análisis:", value=datetime.now()-timedelta(days=365))
+            # FECHA POR DEFECTO: 1 AÑO ATRÁS (Para que salga gráfico)
+            default_start = datetime.now() - timedelta(days=365)
+            start_date = st.date_input("📅 Rango de Análisis:", value=default_start)
         
-        # --- CÁLCULO DE MÉTRICAS ROBUSTO ---
         vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; cagr = 0; beta_portfolio = 1.0
         
-        # Verificamos si hay datos históricos válidos
-        has_history = not history_data.empty and len(history_data.columns) > 0
-        
-        if has_history:
+        if not history_data.empty:
             # Filtro fecha (SIN TIMEZONE)
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
+            # Aseguramos que hay datos después de la fecha
             hist_filt = history_data[history_data.index >= dt_start].copy()
             
             if not hist_filt.empty:
-                # 1. Retorno Diario Cartera (Media de activos)
                 daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
-                
                 if not daily_returns.empty:
                     # Métricas
                     total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
-                    
-                    # Ajustes de formato
                     vol_anual = vol_anual * 100
                     max_drawdown = max_drawdown_dec * 100
-                    
-                    # CAGR
-                    days = (hist_filt.index[-1] - hist_filt.index[0]).days
-                    if days > 30:
-                        total_ret_abs = (hist_filt.iloc[-1].sum() / hist_filt.iloc[0].sum()) - 1
-                        cagr = ((1 + total_ret_abs) ** (365/days) - 1) * 100
                     
                     # Beta
                     if not benchmark_data.empty:
@@ -381,14 +346,12 @@ with col_main:
                 rent_total_pct = (pnl_total / df_final['Dinero Invertido'].sum()) * 100 if df_final['Dinero Invertido'].sum() > 0 else 0
                 delta_color = "normal" if pnl_total >= 0 else "inverse"
                 k2.metric("📈 P&L Latente", f"{pnl_total:+,.2f} €", f"{rent_total_pct:+.2f}%", delta_color=delta_color)
-            else:
-                k2.metric("📈 P&L Latente", "0.00 €")
+            else: k2.metric("📈 P&L Latente", "0.00 €")
             
             k3.metric("💧 Liquidez", f"{total_liquidez:,.2f} €", f"{(total_liquidez/patrimonio_total*100 if patrimonio_total>0 else 0):.1f}%")
             k4.metric("⚖️ Ratio Sharpe", f"{sharpe_ratio:.2f}")
 
         st.divider()
-        
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("⚡ Volatilidad", f"{vol_anual:.2f}%")
         r2.metric("📉 Max Drawdown", f"{max_drawdown:.2f}%", delta_color="inverse")
@@ -397,25 +360,21 @@ with col_main:
         
         st.divider()
 
-        # --- GRÁFICO COMPARATIVO ---
+        # GRÁFICO DE RENDIMIENTO
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
             st.subheader("🏁 Rendimiento (Base 100)")
-            if has_history:
+            if not history_data.empty:
                 dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
-                
-                # Filtrar
                 hist_filt = history_data[history_data.index >= dt_start].copy()
                 
                 if not hist_filt.empty:
-                    # Cartera (Retorno acumulado promedio)
                     port_ret = hist_filt.pct_change().mean(axis=1).fillna(0)
                     port_cum = (1 + port_ret).cumprod() * 100
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera", line=dict(color='#00CC96', width=2)))
                     
-                    # Benchmark
                     if not benchmark_data.empty:
                         bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
                         if not bench_filt.empty:
@@ -424,10 +383,10 @@ with col_main:
                             fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500", line=dict(color='gray', dash='dot')))
                     
                     fig.update_layout(template="plotly_dark", height=320, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', 
-                                      hovermode="x unified", yaxis_title="Valor (Base 100)")
+                                      hovermode="x unified", yaxis_title="Base 100")
                     st.plotly_chart(fig, use_container_width=True)
-                else: st.info(f"Sin datos desde {dt_start.date()}.")
-            else: st.info("Añade activos para ver el histórico.")
+                else: st.info("Datos insuficientes desde la fecha seleccionada.")
+            else: st.info("Sin histórico.")
 
         with c_donut:
             st.subheader("🍰 Asset Allocation")
@@ -439,31 +398,8 @@ with col_main:
                 st.plotly_chart(fig_pie, use_container_width=True)
             else: st.info("Cartera vacía.")
 
-        st.divider()
-
-        # --- MAPA CALOR ---
-        c_tree, c_bar = st.columns([1.5, 1.5])
-        with c_tree:
-            st.subheader("🗺️ Mapa de Calor")
-            if not df_final.empty:
-                fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %', 
-                                      color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
-                fig_tree.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_tree, use_container_width=True)
-            else: st.info("Sin inversiones.")
-
-        with c_bar:
-            st.subheader("🏆 Ganadores (€)")
-            if not df_final.empty:
-                df_sorted = df_final.sort_values('Ganancia', ascending=True)
-                colors = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
-                fig_bar = go.Figure(go.Bar(x=df_sorted['Ganancia'], y=df_sorted['Nombre'], orientation='h', marker_color=colors, text=df_sorted['Ganancia'].apply(lambda x: f"{x:,.2f}€"), textposition='auto'))
-                fig_bar.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else: st.info("Sin inversiones.")
-
     # ------------------------------------------------------------------
-    # 💰 PÁGINA LIQUIDEZ
+    # 💰 LIQUIDEZ
     # ------------------------------------------------------------------
     elif pagina == "💰 Liquidez (Cash)":
         st.title("💰 Gestión de Liquidez")
@@ -487,7 +423,7 @@ with col_main:
                         st.toast(f"✅ Retirados {b}€"); time.sleep(1); st.rerun()
 
     # ------------------------------------------------------------------
-    # ➕ PÁGINA INVERSIONES
+    # ➕ INVERSIONES
     # ------------------------------------------------------------------
     elif pagina == "➕ Inversiones":
         st.title("➕ Gestión de Activos")
@@ -664,12 +600,8 @@ if st.session_state['show_news']:
         if news:
             for n in news:
                 im = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                h += f"""
-                <div class="news-card">
-                    {im}
-                    <div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div>
-                    <div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div>
-                </div>"""
+                # AQUI ESTABA EL ERROR DEL HTML - QUITAR SANGRIA EN STRING
+                h += f"""<div class="news-card">{im}<div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div><div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div></div>"""
         else: h = "<div style='text-align:center;color:#666;padding:20px'>💤 Sin noticias</div>"
         
         st.markdown(f"<div class='news-scroll-area'>{h}</div>", unsafe_allow_html=True)
