@@ -43,7 +43,7 @@ st.markdown("""
     .stButton>button:hover { border-color: #00CC96; color: #00CC96; }
     .stButton>button[kind="primary"] { background: linear-gradient(135deg, #00CC96 0%, #007d5c 100%); border: none; color: black !important; }
 
-    /* Chat Noticias - CORREGIDO VISUAL */
+    /* Chat Noticias - FIXED */
     .news-scroll-area {
         height: 68vh; overflow-y: auto; padding: 10px; background-color: #161B22;
         border: 1px solid #30363D; border-radius: 12px; margin-top: 15px;
@@ -84,7 +84,7 @@ if 'show_news' not in st.session_state: st.session_state['show_news'] = True
 if 'messages' not in st.session_state: st.session_state['messages'] = []
 
 # ==============================================================================
-# 🔄 LOGIN
+# 🔄 LOGIN (FIXED)
 # ==============================================================================
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
@@ -127,7 +127,7 @@ if not st.session_state['user']:
 user = st.session_state['user']
 
 # ==============================================================================
-# 🧠 MOTOR DE DATOS (CORE)
+# 🧠 MOTOR DE DATOS
 # ==============================================================================
 
 def sanitize_input(text): return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
@@ -159,7 +159,7 @@ def get_user_data(uid):
         liquidity = liq_res[0]['amount']; liq_id = liq_res[0]['id']
     return assets, liquidity, liq_id
 
-# PRECIO ACTUAL SIN CACHE (Al pulsar botón)
+# PRECIO ACTUAL (SIN CACHE AL PULSAR BOTÓN)
 def get_real_time_prices(tickers):
     if not tickers: return {}
     prices = {}
@@ -177,20 +177,24 @@ def get_real_time_prices(tickers):
 
 @st.cache_data(ttl=300)
 def get_historical_data_robust(tickers):
-    """Descarga histórico blindada"""
+    """
+    Descarga histórico y SOLUCIONA EL PROBLEMA DE TIMEZONE.
+    """
     if not tickers: return pd.DataFrame()
     
     unique_tickers = list(set([str(t).strip().upper() for t in tickers] + ['SPY']))
     try:
-        # Descarga
-        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False)['Adj Close']
+        # Descarga con auto_adjust=True para evitar problemas de splits
+        data = yf.download(unique_tickers, period="2y", interval="1d", progress=False, auto_adjust=True)['Close']
         
+        # Corrección si devuelve Series
         if isinstance(data, pd.Series):
             data = data.to_frame()
-            if data.columns[0] == 0: data.columns = unique_tickers
+            if data.columns[0] == 0 or 'Close' in str(data.columns[0]):
+                data.columns = unique_tickers
             
         if not data.empty:
-            # 🔥 QUITAR TIMEZONE PARA QUE COINCIDAN FECHAS 🔥
+            # 🔥 LA LÍNEA MÁGICA: Eliminar Timezone para que coincida con el DateInput 🔥
             data.index = data.index.tz_localize(None)
             data = data.fillna(method='ffill').fillna(method='bfill')
             
@@ -202,7 +206,6 @@ def get_historical_data_robust(tickers):
 @st.cache_data(ttl=900)
 def get_global_news(tickers, time_filter='d'):
     results = []
-    # Búsqueda más genérica si falla la específica
     query = f"{tickers[0]} bolsa" if tickers else "Mercado financiero"
     try:
         with DDGS() as ddgs:
@@ -243,12 +246,12 @@ my_tickers = []
 
 if not df_assets.empty:
     my_tickers = df_assets['ticker'].unique().tolist()
-    # 1. Precios (Tiempo real al cargar o actualizar)
+    # 1. Precios Actuales
     current_prices = get_real_time_prices(my_tickers)
     # 2. Histórico
     history_raw = get_historical_data_robust(my_tickers)
     
-    # Tabla
+    # Tabla Principal
     df_assets['Precio Actual'] = df_assets['ticker'].map(current_prices).fillna(0.0)
     df_assets['Valor Acciones'] = df_assets['shares'] * df_assets['Precio Actual']
     df_assets['Dinero Invertido'] = df_assets['shares'] * df_assets['avg_price']
@@ -301,34 +304,31 @@ else: col_main = st.container(); col_news = st.container()
 with col_main:
     
     # ------------------------------------------------------------------
-    # 📊 DASHBOARD (CORREGIDO)
+    # 📊 DASHBOARD
     # ------------------------------------------------------------------
     if pagina == "📊 Dashboard & Alpha":
         st.title("📊 Control de Mando Integral")
         
         col_kpi, col_date = st.columns([3, 1])
         with col_date: 
-            # FECHA POR DEFECTO: 1 AÑO ATRÁS (Para que salga gráfico)
+            # FECHA POR DEFECTO: 1 AÑO ATRÁS
             default_start = datetime.now() - timedelta(days=365)
             start_date = st.date_input("📅 Rango de Análisis:", value=default_start)
         
         vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; cagr = 0; beta_portfolio = 1.0
         
         if not history_data.empty:
-            # Filtro fecha (SIN TIMEZONE)
+            # Forzar fecha sin timezone
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
-            # Aseguramos que hay datos después de la fecha
             hist_filt = history_data[history_data.index >= dt_start].copy()
             
             if not hist_filt.empty:
                 daily_returns = hist_filt.pct_change().mean(axis=1).dropna()
                 if not daily_returns.empty:
-                    # Métricas
                     total_ret_period, vol_anual, max_drawdown_dec, sharpe_ratio = safe_metric_calc(daily_returns + 1)
                     vol_anual = vol_anual * 100
                     max_drawdown = max_drawdown_dec * 100
                     
-                    # Beta
                     if not benchmark_data.empty:
                         bench_ret = benchmark_data[benchmark_data.index >= dt_start].pct_change().dropna()
                         common = daily_returns.index.intersection(bench_ret.index)
@@ -360,7 +360,7 @@ with col_main:
         
         st.divider()
 
-        # GRÁFICO DE RENDIMIENTO
+        # GRÁFICO
         c_chart, c_donut = st.columns([2, 1.2])
         with c_chart:
             st.subheader("🏁 Rendimiento (Base 100)")
@@ -386,7 +386,7 @@ with col_main:
                                       hovermode="x unified", yaxis_title="Base 100")
                     st.plotly_chart(fig, use_container_width=True)
                 else: st.info("Datos insuficientes desde la fecha seleccionada.")
-            else: st.info("Sin histórico.")
+            else: st.info("Añade activos para ver el histórico.")
 
         with c_donut:
             st.subheader("🍰 Asset Allocation")
@@ -397,6 +397,29 @@ with col_main:
                 fig_pie.update_layout(template="plotly_dark", height=320, showlegend=True, margin=dict(t=0,b=0,l=0,r=0), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_pie, use_container_width=True)
             else: st.info("Cartera vacía.")
+
+        st.divider()
+
+        # MAPA CALOR
+        c_tree, c_bar = st.columns([1.5, 1.5])
+        with c_tree:
+            st.subheader("🗺️ Mapa de Calor")
+            if not df_final.empty:
+                fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %', 
+                                      color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
+                fig_tree.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else: st.info("Sin inversiones.")
+
+        with c_bar:
+            st.subheader("🏆 Ganadores (€)")
+            if not df_final.empty:
+                df_sorted = df_final.sort_values('Ganancia', ascending=True)
+                colors = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
+                fig_bar = go.Figure(go.Bar(x=df_sorted['Ganancia'], y=df_sorted['Nombre'], orientation='h', marker_color=colors, text=df_sorted['Ganancia'].apply(lambda x: f"{x:,.2f}€"), textposition='auto'))
+                fig_bar.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else: st.info("Sin inversiones.")
 
     # ------------------------------------------------------------------
     # 💰 LIQUIDEZ
@@ -600,7 +623,6 @@ if st.session_state['show_news']:
         if news:
             for n in news:
                 im = f"<img src='{n['image']}' class='news-img'/>" if n.get('image') else ""
-                # AQUI ESTABA EL ERROR DEL HTML - QUITAR SANGRIA EN STRING
                 h += f"""<div class="news-card">{im}<div class="news-source">{n.get('source','Web')} • {n.get('date','')}</div><div class="news-title"><a href="{n['url']}" target="_blank">{n['title']}</a></div></div>"""
         else: h = "<div style='text-align:center;color:#666;padding:20px'>💤 Sin noticias</div>"
         
