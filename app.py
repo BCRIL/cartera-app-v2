@@ -128,6 +128,33 @@ st.markdown("""
     .reco-card .reco-ticker { font-size: 1rem; font-weight: 700; color: var(--accent) !important; }
     .reco-card .reco-name { font-size: 0.82rem; color: var(--text-secondary) !important; }
     .reco-card .reco-reason { font-size: 0.78rem; color: var(--text-primary) !important; margin-top: 6px; line-height: 1.3; }
+
+    /* Info tips - explicaciones accesibles */
+    .info-tip {
+        background: linear-gradient(135deg, #111822 0%, #141d28 100%);
+        border: 1px solid #1e3a50; border-left: 3px solid #3b82f6;
+        border-radius: 8px; padding: 12px 16px; margin: 8px 0 14px 0;
+        font-size: 0.82rem; line-height: 1.55; color: #b0bec5 !important;
+    }
+    .info-tip b { color: #e0e0e0 !important; }
+    .info-tip .tip-icon { font-size: 1rem; margin-right: 6px; }
+    .chart-explain {
+        background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+        padding: 10px 14px; margin-top: 6px; font-size: 0.78rem; line-height: 1.5;
+        color: var(--text-secondary) !important;
+    }
+    .chart-explain b { color: var(--text-primary) !important; }
+    .metric-explain {
+        font-size: 0.7rem; color: var(--text-secondary) !important;
+        margin-top: 2px; padding: 0 4px; line-height: 1.3;
+    }
+    .health-badge {
+        display: inline-block; padding: 3px 10px; border-radius: 20px;
+        font-size: 0.75rem; font-weight: 600; margin-left: 6px;
+    }
+    .health-good { background: rgba(0,204,150,0.15); color: #00CC96; border: 1px solid rgba(0,204,150,0.3); }
+    .health-warn { background: rgba(255,161,90,0.15); color: #FFA15A; border: 1px solid rgba(255,161,90,0.3); }
+    .health-bad { background: rgba(239,85,59,0.15); color: #EF553B; border: 1px solid rgba(239,85,59,0.3); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -558,6 +585,12 @@ with st.sidebar:
 # ======================================================================
 if pagina == "Dashboard":
     st.markdown("## Dashboard")
+    st.markdown("""<div class='info-tip'>
+        <span class='tip-icon'>📖</span> <b>Tu panel de control financiero.</b>
+        Aqui ves un resumen completo de tu patrimonio: cuanto tienes, cuanto has ganado o perdido,
+        y como se comporta tu cartera comparada con el mercado. Los numeros en <b style='color:#00CC96'>verde</b> son positivos
+        y los numeros en <b style='color:#EF553B'>rojo</b> son negativos.
+    </div>""", unsafe_allow_html=True)
 
     # Periodo
     periodos = {"1M": 30, "3M": 90, "6M": 180, "1A": 365, "2A": 730, "MAX": 9999}
@@ -577,17 +610,18 @@ if pagina == "Dashboard":
 
     # KPIs principales
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Patrimonio", f"{patrimonio_total:,.2f} EUR")
+    k1.metric("Patrimonio", f"{patrimonio_total:,.2f} EUR", help="Valor total de tus inversiones + dinero en efectivo. Es todo lo que tienes.")
     if total_inversiones > 0:
         pnl_total = df_final['Ganancia'].sum()
         dinero_inv = df_final['Dinero Invertido'].sum()
         rent_pct = (pnl_total / dinero_inv * 100) if dinero_inv > 0 else 0
         k2.metric("P&L", f"{pnl_total:+,.2f} EUR", f"{rent_pct:+.2f}%",
-                   delta_color="normal" if pnl_total >= 0 else "inverse")
+                   delta_color="normal" if pnl_total >= 0 else "inverse",
+                   help="Profit & Loss (Ganancia/Perdida). Cuanto has ganado o perdido en total desde que invertiste.")
     else:
-        k2.metric("P&L", "0.00 EUR")
-    k3.metric("Liquidez", f"{total_liquidez:,.2f} EUR")
-    k4.metric("Activos", f"{len(df_final)}")
+        k2.metric("P&L", "0.00 EUR", help="Profit & Loss. Aun no tienes inversiones.")
+    k3.metric("Liquidez", f"{total_liquidez:,.2f} EUR", help="Dinero disponible en efectivo que no esta invertido. Tu colchon de seguridad.")
+    k4.metric("Activos", f"{len(df_final)}", help="Numero de inversiones diferentes que tienes en cartera.")
 
     # Metricas avanzadas
     vol_anual = 0; sharpe_ratio = 0; max_drawdown = 0; beta_portfolio = 1.0
@@ -618,13 +652,41 @@ if pagina == "Dashboard":
                         alpha_jensen = ((daily_returns.loc[common].mean() - rf_d)
                                         - beta_portfolio * (bench_ret.loc[common].mean() - rf_d)) * 252
 
-    k5.metric("Sharpe", f"{sharpe_ratio:.2f}")
+    k5.metric("Sharpe", f"{sharpe_ratio:.2f}", help="Ratio de Sharpe: mide si el riesgo que asumes esta bien recompensado. Mayor de 1 = bueno, mayor de 2 = excelente.")
+
+    # Interpretacion automatica del P&L
+    if total_inversiones > 0:
+        if rent_pct > 15:
+            health = "health-good"
+            msg_pnl = "Excelente rendimiento"
+        elif rent_pct > 0:
+            health = "health-good"
+            msg_pnl = "Rendimiento positivo"
+        elif rent_pct > -5:
+            health = "health-warn"
+            msg_pnl = "Pequena perdida, normal a corto plazo"
+        else:
+            health = "health-bad"
+            msg_pnl = "En perdidas significativas"
+        st.markdown(f"<span class='health-badge {health}'>{msg_pnl} ({rent_pct:+.1f}%)</span>", unsafe_allow_html=True)
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Volatilidad", f"{vol_anual:.1f}%")
-    m2.metric("Max DD", f"{max_drawdown:.1f}%")
-    m3.metric("Beta", f"{beta_portfolio:.2f}")
-    m4.metric("Sortino", f"{sortino:.2f}")
+    m1.metric("Volatilidad", f"{vol_anual:.1f}%", help="Cuanto sube y baja tu cartera. Menos del 15% = tranquila, mas del 25% = arriesgada.")
+    m2.metric("Max DD", f"{max_drawdown:.1f}%", help="Maxima caida desde un pico. Es la peor racha que ha tenido tu cartera. Cuanto menor, mejor.")
+    m3.metric("Beta", f"{beta_portfolio:.2f}", help="Sensibilidad al mercado. Beta=1 se mueve igual que el mercado, <1 es mas tranquila, >1 es mas agresiva.")
+    m4.metric("Sortino", f"{sortino:.2f}", help="Como Sharpe pero solo mide el riesgo de perdida. Mayor valor = mejor relacion ganancia/riesgo de caida.")
+
+    # Explicacion rapida de metricas
+    with st.expander("ℹ️ ¿Que significan estos numeros?", expanded=False):
+        st.markdown("""
+        | Metrica | Que mide | Bueno | Regular | Malo |
+        |---------|----------|-------|---------|------|
+        | **Volatilidad** | Cuanto fluctua tu cartera | < 15% | 15-25% | > 25% |
+        | **Max Drawdown** | La peor caida historica | > -10% | -10% a -20% | < -20% |
+        | **Beta** | ¿Tu cartera se mueve mas o menos que el mercado? | 0.5-1.0 | 1.0-1.5 | > 1.5 |
+        | **Sharpe** | Rentabilidad ajustada al riesgo | > 1.0 | 0.5-1.0 | < 0.5 |
+        | **Sortino** | Como Sharpe, pero enfocado en caidas | > 1.5 | 0.7-1.5 | < 0.7 |
+        """)
 
     st.markdown("---")
 
@@ -632,6 +694,12 @@ if pagina == "Dashboard":
     col_chart, col_alloc = st.columns([2.2, 1])
     with col_chart:
         st.markdown("##### Rendimiento vs S&P 500")
+        st.markdown("""<div class='chart-explain'>
+            <b>¿Como leer este grafico?</b> La <b style='color:#00CC96'>linea verde</b> es tu cartera y la
+            <b style='color:#636EFA'>linea azul punteada</b> es el S&P 500 (las 500 mayores empresas de EE.UU.).
+            Si tu linea verde esta por encima de la azul, lo estas haciendo mejor que el mercado.
+            La linea horizontal en 100 es tu punto de partida.
+        </div>""", unsafe_allow_html=True)
         if not history_data.empty:
             dt_start = pd.to_datetime(start_date).replace(tzinfo=None)
             hist_filt = history_data[history_data.index >= dt_start].copy()
@@ -648,11 +716,22 @@ if pagina == "Dashboard":
                         bench_cum = (1 + bench_filt.pct_change().fillna(0)).cumprod() * 100
                         fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500",
                                                   line=dict(color='#636EFA', dash='dot', width=1.5)))
-                fig.add_hline(y=100, line_dash="dash", line_color="#333", line_width=0.5)
-                fig.update_layout(template="plotly_dark", height=340, margin=dict(l=0, r=0, t=10, b=0),
+                fig.add_hline(y=100, line_dash="dash", line_color="#555", line_width=1,
+                              annotation_text="Punto de partida", annotation_font_color="#888", annotation_font_size=10)
+                fig.update_layout(template="plotly_dark", height=360, margin=dict(l=0, r=0, t=10, b=0),
                                   paper_bgcolor='rgba(0,0,0,0)', hovermode="x unified",
-                                  legend=dict(orientation="h", y=1.08))
+                                  legend=dict(orientation="h", y=1.08),
+                                  yaxis_title="Rendimiento (base 100)",
+                                  xaxis_title="Fecha")
+                fig.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
+                fig.update_xaxes(gridcolor='rgba(255,255,255,0.04)')
                 st.plotly_chart(fig, use_container_width=True)
+                # Interpretacion automatica
+                final_port = port_cum.iloc[-1]
+                if final_port > 100:
+                    st.markdown(f"""<div class='chart-explain'>📈 Tu cartera ha subido un <b style='color:#00CC96'>{final_port - 100:.1f}%</b> en este periodo.</div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""<div class='chart-explain'>📉 Tu cartera ha bajado un <b style='color:#EF553B'>{100 - final_port:.1f}%</b> en este periodo.</div>""", unsafe_allow_html=True)
             else:
                 st.info("Datos insuficientes para el periodo.")
         else:
@@ -660,6 +739,9 @@ if pagina == "Dashboard":
 
     with col_alloc:
         st.markdown("##### Distribucion")
+        st.markdown("""<div class='chart-explain'>
+            Muestra como esta repartido tu dinero. Idealmente <b>no deberias tener mas del 30-40%</b> en un solo activo.
+        </div>""", unsafe_allow_html=True)
         if patrimonio_total > 0:
             labels_p = (['Cash'] + df_final['Nombre'].tolist()) if not df_final.empty else ['Cash']
             values_p = ([total_liquidez] + df_final['Valor Acciones'].tolist()) if not df_final.empty else [total_liquidez]
@@ -682,6 +764,10 @@ if pagina == "Dashboard":
         col_tree, col_bar = st.columns(2)
         with col_tree:
             st.markdown("##### Mapa de Calor")
+            st.markdown("""<div class='chart-explain'>
+                Cada bloque es un activo. El <b>tamano</b> indica cuanto dinero tienes en el.
+                <b style='color:#00CC96'>Verde</b> = ganando dinero, <b style='color:#EF553B'>rojo</b> = perdiendo.
+            </div>""", unsafe_allow_html=True)
             fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %',
                                   color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
             fig_tree.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=0, b=0),
@@ -690,6 +776,10 @@ if pagina == "Dashboard":
 
         with col_bar:
             st.markdown("##### P&L por Activo")
+            st.markdown("""<div class='chart-explain'>
+                Ganancia o perdida en euros de cada inversion. Barras <b style='color:#00CC96'>verdes</b> = ganas,
+                <b style='color:#EF553B'>rojas</b> = pierdes.
+            </div>""", unsafe_allow_html=True)
             df_sorted = df_final.sort_values('Ganancia', ascending=True)
             colors_b = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
             fig_bar = go.Figure(go.Bar(
@@ -702,15 +792,29 @@ if pagina == "Dashboard":
     # Drawdown
     if not daily_returns.empty and len(daily_returns) > 5:
         st.markdown("---")
-        st.markdown("##### Drawdown")
+        st.markdown("##### Drawdown (Peores caidas)")
+        st.markdown("""<div class='chart-explain'>
+            El <b>drawdown</b> muestra cuanto ha caido tu cartera desde su mejor momento. Es como medir
+            "la peor racha". Un drawdown de <b>-10%</b> significa que en algun momento perdiste un 10% desde el punto mas alto.
+            Es <b>normal</b> tener drawdowns; lo importante es que se recuperen.
+        </div>""", unsafe_allow_html=True)
         cum_ret = (1 + daily_returns).cumprod()
         dd_s = (cum_ret - cum_ret.cummax()) / cum_ret.cummax() * 100
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=dd_s.index, y=dd_s, fill='tozeroy',
                                      fillcolor='rgba(239,85,59,0.15)', line=dict(color='#EF553B', width=1)))
-        fig_dd.update_layout(template="plotly_dark", height=180, margin=dict(l=0, r=0, t=0, b=0),
-                              paper_bgcolor='rgba(0,0,0,0)', yaxis_title="DD %", hovermode="x unified")
+        fig_dd.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=10, b=0),
+                              paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Caida %", hovermode="x unified",
+                              xaxis_title="Fecha")
+        fig_dd.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
         st.plotly_chart(fig_dd, use_container_width=True)
+        worst_dd = dd_s.min()
+        if worst_dd < -20:
+            st.markdown(f"""<div class='chart-explain'>⚠️ Tu peor caida fue del <b style='color:#EF553B'>{worst_dd:.1f}%</b>. Esto puede ser normal en carteras agresivas, pero asegurate de estar comodo con este nivel de riesgo.</div>""", unsafe_allow_html=True)
+        elif worst_dd < -10:
+            st.markdown(f"""<div class='chart-explain'>📊 Tu peor caida fue del <b>{worst_dd:.1f}%</b>. Esta dentro de lo esperado para la mayoria de carteras.</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""<div class='chart-explain'>✅ Tu peor caida fue solo del <b style='color:#00CC96'>{worst_dd:.1f}%</b>. Tu cartera es bastante estable.</div>""", unsafe_allow_html=True)
 
     # Tabla
     if not df_final.empty:
@@ -995,7 +1099,12 @@ elif pagina == "Liquidez":
 # ======================================================================
 elif pagina == "Rebalanceo":
     st.markdown("## Rebalanceo Inteligente")
-    st.caption("El rebalanceo se realiza **solo comprando mas** -- nunca vendiendo. Se calcula cuanto aportar a cada activo para alcanzar los pesos objetivo.")
+    st.markdown("""<div class='info-tip'>
+        <span class='tip-icon'>⚖️</span> <b>¿Que es rebalancear?</b>
+        Con el tiempo, algunos activos suben y otros bajan, cambiando los porcentajes de tu cartera.
+        Rebalancear significa <b>comprar mas de los activos que se han quedado por debajo</b> de tu objetivo
+        para volver a tener la distribucion que deseas. Aqui <b>nunca se vende</b>, solo se compra mas.
+    </div>""", unsafe_allow_html=True)
 
     if df_final.empty:
         st.warning("Anade activos primero.")
@@ -1083,11 +1192,14 @@ elif pagina == "Rebalanceo":
 
         # -- ESTRATEGIAS --
         with tab_strat:
+            st.markdown("""<div class='chart-explain'>
+                Elige una estrategia predefinida y el sistema calculara automaticamente cuanto comprar de cada activo.
+            </div>""", unsafe_allow_html=True)
             estrategia = st.selectbox("Estrategia:", [
                 "Equiponderado",
                 "Momentum (mas a ganadores)",
                 "Minima Volatilidad",
-            ])
+            ], help="Equiponderado = misma cantidad en cada activo. Momentum = mas en los que mejor van. Min. Volatilidad = mas en los mas estables.")
             aporte_strat = st.number_input("Aporte adicional (EUR)", 0.0, step=50.0, key="aporte_strat")
 
             if st.button("Calcular", type="primary", key="calc_strat"):
@@ -1140,7 +1252,12 @@ elif pagina == "Rebalanceo":
         # -- SUGERENCIAS --
         with tab_suggest:
             st.markdown("##### Que falta en tu cartera?")
-            st.caption("Analisis automatico basado en tu composicion actual.")
+            st.markdown("""<div class='info-tip'>
+                <span class='tip-icon'>💡</span> <b>Sugerencias automaticas.</b>
+                Analizamos los sectores de la economia donde no tienes exposicion y te sugerimos
+                ETFs (fondos que replican indices) para cubrirlos. Una cartera diversificada en
+                diferentes sectores reduce el riesgo de depender de una sola industria.
+            </div>""", unsafe_allow_html=True)
 
             if not df_final.empty:
                 # Obtener sectores actuales
@@ -1226,6 +1343,11 @@ elif pagina == "Rebalanceo":
 # ======================================================================
 elif pagina == "Radiografia":
     st.markdown("## Radiografia de Cartera")
+    st.markdown("""<div class='info-tip'>
+        <span class='tip-icon'>🔬</span> <b>Analisis profundo de tu cartera.</b>
+        Aqui puedes ver si tu cartera esta bien diversificada, en que sectores inviertes,
+        como se relacionan tus activos entre si, y los detalles de cada inversion.
+    </div>""", unsafe_allow_html=True)
 
     if df_final.empty:
         st.warning("Anade activos.")
@@ -1233,15 +1355,30 @@ elif pagina == "Radiografia":
         weights = (df_final['Peso %'] / 100).tolist()
         div = diversification_score(weights)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Diversificacion", f"{div:.0f}/100")
-        c2.metric("Activos", len(df_final))
-        c3.metric("Mayor peso", f"{df_final['Peso %'].max():.1f}%")
-        c4.metric("Invertido", f"{df_final['Dinero Invertido'].sum():,.2f}EUR")
+        c1.metric("Diversificacion", f"{div:.0f}/100", help="Mide lo bien repartido que esta tu dinero. 100 = perfectamente diversificado.")
+        c2.metric("Activos", len(df_final), help="Numero total de inversiones diferentes.")
+        c3.metric("Mayor peso", f"{df_final['Peso %'].max():.1f}%", help="Tu activo mas grande. Idealmente < 30%.")
+        c4.metric("Invertido", f"{df_final['Dinero Invertido'].sum():,.2f}EUR", help="Dinero total que has puesto en inversiones.")
+
+        # Diagnostico automatico
+        if div >= 80:
+            st.markdown("<span class='health-badge health-good'>Buena diversificacion</span>", unsafe_allow_html=True)
+        elif div >= 50:
+            st.markdown("<span class='health-badge health-warn'>Diversificacion mejorable</span>", unsafe_allow_html=True)
+        else:
+            st.markdown("<span class='health-badge health-bad'>Cartera muy concentrada - considera diversificar</span>", unsafe_allow_html=True)
 
         st.markdown("---")
         tab_corr, tab_sec, tab_brok, tab_det = st.tabs(["Correlacion", "Sectores", "Brokers", "Detalle"])
 
         with tab_corr:
+            st.markdown("""<div class='info-tip'>
+                <span class='tip-icon'>🔗</span> <b>Correlacion entre activos.</b>
+                Mide si tus activos se mueven juntos. Un valor de <b>1.0</b> = se mueven exactamente igual
+                (poca diversificacion), <b>0</b> = no tienen relacion, <b>-1.0</b> = se mueven en direccion opuesta
+                (ideal para diversificar). Los colores <b style='color:#00CC96'>verdes</b> indican alta correlacion
+                y <b style='color:#EF553B'>rojos</b> baja o negativa.
+            </div>""", unsafe_allow_html=True)
             if not history_data.empty and len(history_data.columns) > 1:
                 valid_c = [c for c in history_data.columns if c in my_tickers]
                 if len(valid_c) > 1:
@@ -1265,6 +1402,12 @@ elif pagina == "Radiografia":
                 st.info("Sin datos historicos.")
 
         with tab_sec:
+            st.markdown("""<div class='info-tip'>
+                <span class='tip-icon'>🏭</span> <b>Distribucion por sectores.</b>
+                Muestra en que industrias esta invertido tu dinero (tecnologia, salud, finanzas, etc.).
+                Una buena cartera suele estar repartida entre <b>al menos 3-4 sectores diferentes</b>
+                para no depender de uno solo.
+            </div>""", unsafe_allow_html=True)
             with st.spinner("Cargando sectores..."):
                 sectors = {}
                 for _, r in df_final.iterrows():
@@ -1289,6 +1432,11 @@ elif pagina == "Radiografia":
                     st.plotly_chart(fig_sp, use_container_width=True)
 
         with tab_brok:
+            st.markdown("""<div class='info-tip'>
+                <span class='tip-icon'>🏦</span> <b>Distribucion por brokers.</b>
+                Muestra como esta repartido tu dinero entre los diferentes brokers que usas.
+                Tener mas de un broker puede ser bueno para diversificar riesgo de plataforma.
+            </div>""", unsafe_allow_html=True)
             if 'platform' in df_final.columns:
                 bk = df_final.groupby('platform').agg(Valor=('Valor Acciones', 'sum'), N=('ticker', 'count'),
                                                        PnL=('Ganancia', 'sum')).reset_index()
@@ -1339,7 +1487,12 @@ elif pagina == "Radiografia":
 # ======================================================================
 elif pagina == "Simulador":
     st.markdown("## Simulador Monte Carlo")
-    st.caption("Proyeccion estocastica del valor futuro con percentiles P10/P50/P90.")
+    st.markdown("""<div class='info-tip'>
+        <span class='tip-icon'>🎲</span> <b>¿Cuanto podria valer tu cartera en el futuro?</b>
+        Este simulador genera miles de escenarios posibles basados en como se ha comportado tu cartera hasta ahora.
+        No predice el futuro, pero te da una idea del <b>rango de resultados probables</b>.
+        Piensa en ello como: "si la historia se repitiera de muchas formas, ¿donde podria acabar mi dinero?".
+    </div>""", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1389,25 +1542,37 @@ elif pagina == "Simulador":
         for si in np.random.choice(n_sims, min(15, n_sims), replace=False):
             fig.add_trace(go.Scatter(x=x, y=paths[si], line=dict(color='rgba(255,255,255,0.03)', width=0.5),
                                       showlegend=False))
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', height=400,
-                           xaxis_title="Anos", yaxis_title="EUR", hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
+        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', height=420,
+                           xaxis_title="Anos en el futuro", yaxis_title="Valor en EUR", hovermode="x unified",
+                           margin=dict(l=0, r=0, t=10, b=0))
+        fig.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
+        fig.update_xaxes(gridcolor='rgba(255,255,255,0.04)')
         st.plotly_chart(fig, use_container_width=True)
 
+        st.markdown("""<div class='chart-explain'>
+            <b>¿Como leer este grafico?</b> La <b style='color:#00CC96'>linea verde</b> es el resultado mas probable (mediana).
+            La <b>banda oscura</b> cubre el 50% de escenarios centrales (P25-P75). La <b>banda clara</b> cubre el 80% de escenarios (P10-P90).
+            Cuanto mas ancha la banda, mas incertidumbre hay.
+        </div>""", unsafe_allow_html=True)
+
         cr1, cr2, cr3, cr4, cr5 = st.columns(5)
-        cr1.metric("P10", f"{p10[-1]:,.0f}EUR")
-        cr2.metric("P25", f"{p25[-1]:,.0f}EUR")
-        cr3.metric("P50", f"{p50[-1]:,.0f}EUR")
-        cr4.metric("P75", f"{p75[-1]:,.0f}EUR")
-        cr5.metric("P90", f"{p90[-1]:,.0f}EUR")
+        cr1.metric("Pesimista", f"{p10[-1]:,.0f}EUR", help="P10: solo el 10% de escenarios acaban peor que esto.")
+        cr2.metric("Cauto", f"{p25[-1]:,.0f}EUR", help="P25: el 25% de escenarios acaban por debajo.")
+        cr3.metric("Probable", f"{p50[-1]:,.0f}EUR", help="P50 (mediana): resultado mas tipico, la mitad acaban mejor y la mitad peor.")
+        cr4.metric("Optimista", f"{p75[-1]:,.0f}EUR", help="P75: solo el 25% de escenarios son mejores que esto.")
+        cr5.metric("Muy optimista", f"{p90[-1]:,.0f}EUR", help="P90: solo el 10% de escenarios acaban mejor.")
 
         total_aportado = cap + aport * 12 * ys
         prob_loss = np.sum(paths[:, -1] < total_aportado) / n_sims * 100
-        st.markdown(f"""
-        - **Capital inicial:** {cap:,.2f}EUR | **Aportaciones:** {aport * 12 * ys:,.2f}EUR
-        - **Total aportado:** {total_aportado:,.2f}EUR
-        - **Ganancia mediana:** {p50[-1] - total_aportado:+,.2f}EUR
-        - **Prob. perdida:** {prob_loss:.1f}%
-        """)
+
+        # Resumen en lenguaje sencillo
+        st.markdown(f"""<div class='info-tip'>
+            <span class='tip-icon'>📊</span> <b>Resumen en lenguaje sencillo:</b><br>
+            Empiezas con <b>{cap:,.0f}EUR</b>{'  y aportarias <b>' + f'{aport * 12 * ys:,.0f}EUR</b> en total' if aport > 0 else ''}.
+            En <b>{ys} anos</b>, lo mas probable es que tu cartera valga alrededor de <b>{p50[-1]:,.0f}EUR</b>,
+            con una ganancia estimada de <b>{p50[-1] - total_aportado:+,.0f}EUR</b>.
+            {'Hay un <b>' + f'{prob_loss:.0f}%</b> de probabilidad de acabar con menos de lo aportado.' if prob_loss > 0 else '<b>En practicamente todos los escenarios acabarias con ganancia.</b>'}
+        </div>""", unsafe_allow_html=True)
 
 # ======================================================================
 # HISTORIAL
