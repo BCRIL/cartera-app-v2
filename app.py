@@ -1303,13 +1303,16 @@ elif pagina == "Rebalanceo":
         </div>""", unsafe_allow_html=True)
         st.warning("Anade activos primero.")
     else:
-        # ---- Real-time portfolio analysis ----
-        wts = df_final['Peso %'].tolist()
+        # ---- Real-time portfolio analysis (basado en lo invertido, no valor mercado) ----
+        total_invertido = df_final['Dinero Invertido'].sum()
+        df_final['Peso Inv %'] = df_final.apply(
+            lambda r: (r['Dinero Invertido'] / total_invertido * 100) if total_invertido > 0 else 0, axis=1)
+        wts = df_final['Peso Inv %'].tolist()
         names = df_final['Nombre'].tolist()
         max_w, min_w = max(wts), min(wts)
         over_asset = names[wts.index(max_w)]
         under_asset = names[wts.index(min_w)]
-        weights_arr = (df_final['Peso %'] / 100).tolist()
+        weights_arr = (df_final['Peso Inv %'] / 100).tolist()
         div_score = diversification_score(weights_arr)
 
         # Generate real-time advice
@@ -1335,8 +1338,9 @@ elif pagina == "Rebalanceo":
             consejos.append(f"📊 Activos mas desviados del peso equitativo: {', '.join(drift_msgs[:3])}")
 
         reb_intro = f"""<div class='info-tip'>
-            <span class='tip-icon'>⚖️</span> <b>Rebalanceo solo comprando.</b>
-            Tu cartera tiene <b>{len(wts)} activos</b> con un patrimonio de <b>{total_inversiones:,.0f}EUR</b>.
+            <span class='tip-icon'>⚖️</span> <b>Rebalanceo solo comprando (basado en capital invertido).</b>
+            Tu cartera tiene <b>{len(wts)} activos</b> con <b>{total_invertido:,.0f}EUR invertidos</b>.
+            Los pesos se calculan sobre el <b>dinero que has puesto</b>, no sobre el valor de mercado.
             Selecciona los pesos objetivo y el plazo: el sistema calcula <b>matematicamente</b>
             cuanto necesitas invertir cada mes, sin vender ningun activo.
         </div>"""
@@ -1395,8 +1399,8 @@ elif pagina == "Rebalanceo":
                 for col, (idx_r, r_row) in zip(cols, batch):
                     with col:
                         st.markdown(f"**{r_row['Nombre']}**")
-                        st.caption(f"Actual: {r_row['Peso %']:.1f}%  ({r_row['Valor Acciones']:,.0f}€)")
-                        w = st.number_input("Objetivo %", 0, 100, int(round(r_row['Peso %'])),
+                        st.caption(f"Invertido: {r_row['Peso Inv %']:.1f}%  ({r_row['Dinero Invertido']:,.0f}€)")
+                        w = st.number_input("Objetivo %", 0, 100, int(round(r_row['Peso Inv %'])),
                                              key=f"reb_{idx_r}", label_visibility="collapsed")
                         ws[r_row['Nombre']] = w
                         tot_w += w
@@ -1412,12 +1416,12 @@ elif pagina == "Rebalanceo":
                 st.warning(f"Los pesos deben sumar 100% (actual: {tot_w}%). Ajusta antes de continuar.")
             else:
                 if st.button("📅 Calcular Plan de Compras", type="primary", use_container_width=True):
-                    # --- Core math ---
-                    valores_actuales = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
-                    compras_total, capital_necesario = calcular_rebalanceo_compras(valores_actuales, ws)
+                    # --- Core math (basado en dinero invertido) ---
+                    valores_invertidos = {r['Nombre']: r['Dinero Invertido'] for _, r in df_final.iterrows()}
+                    compras_total, capital_necesario = calcular_rebalanceo_compras(valores_invertidos, ws)
                     total_a_comprar = sum(compras_total.values())
                     aporte_mensual = total_a_comprar / meses_reb if meses_reb > 0 else total_a_comprar
-                    capital_final = total_inversiones + total_a_comprar
+                    capital_final = total_invertido + total_a_comprar
 
                     # ---- Summary metrics ----
                     st.markdown("### 📊 Tu Plan de Rebalanceo")
@@ -1427,7 +1431,7 @@ elif pagina == "Rebalanceo":
                     k2.metric("Aporte mensual", f"{aporte_mensual:,.0f}€",
                               help="Divide el total entre los meses seleccionados.")
                     k3.metric("Duracion", f"{meses_reb} meses")
-                    k4.metric("Cartera final", f"{capital_final:,.0f}€")
+                    k4.metric("Total invertido final", f"{capital_final:,.0f}€")
 
                     # Liquidity check
                     if total_liquidez >= total_a_comprar:
@@ -1443,12 +1447,12 @@ elif pagina == "Rebalanceo":
                     for _, r_row in df_final.iterrows():
                         nombre = r_row['Nombre']
                         compra = compras_total.get(nombre, 0)
-                        nuevo_val = r_row['Valor Acciones'] + compra
-                        nuevo_pct = nuevo_val / capital_final * 100 if capital_final > 0 else 0
+                        nuevo_inv = r_row['Dinero Invertido'] + compra
+                        nuevo_pct = nuevo_inv / capital_final * 100 if capital_final > 0 else 0
                         resumen_data.append({
                             'Activo': nombre,
-                            'Valor Actual': r_row['Valor Acciones'],
-                            'Peso Actual': r_row['Peso %'],
+                            'Invertido': r_row['Dinero Invertido'],
+                            'Peso Actual': r_row['Peso Inv %'],
                             'Peso Objetivo': ws[nombre],
                             'Comprar Total': compra,
                             'Comprar/Mes': compra / meses_reb if meses_reb > 0 else compra,
@@ -1456,7 +1460,7 @@ elif pagina == "Rebalanceo":
                         })
                     df_resumen = pd.DataFrame(resumen_data)
                     st.dataframe(df_resumen.style.format({
-                        'Valor Actual': '{:,.0f}€', 'Peso Actual': '{:.1f}%', 'Peso Objetivo': '{:.0f}%',
+                        'Invertido': '{:,.0f}€', 'Peso Actual': '{:.1f}%', 'Peso Objetivo': '{:.0f}%',
                         'Comprar Total': '{:,.0f}€', 'Comprar/Mes': '{:,.0f}€', 'Peso Final': '{:.1f}%'
                     }).background_gradient(subset=['Comprar/Mes'], cmap='Greens', vmin=0),
                         use_container_width=True)
@@ -1494,9 +1498,9 @@ elif pagina == "Rebalanceo":
                     ), use_container_width=True, height=min(400, 40 + 35 * len(df_plan)))
 
                     # ---- Bar chart: actual vs objective vs final ----
-                    st.markdown("### Peso Actual vs Objetivo")
+                    st.markdown("### Peso Invertido Actual vs Objetivo")
                     fig_reb = go.Figure()
-                    fig_reb.add_trace(go.Bar(name='Actual', x=df_resumen['Activo'], y=df_resumen['Peso Actual'],
+                    fig_reb.add_trace(go.Bar(name='Invertido Actual', x=df_resumen['Activo'], y=df_resumen['Peso Actual'],
                                               marker_color='#636EFA',
                                               marker_line=dict(color='rgba(255,255,255,0.15)', width=1),
                                               hovertemplate='<b>%{x}</b><br>Actual: %{y:.1f}%<extra></extra>'))
@@ -1524,9 +1528,9 @@ elif pagina == "Rebalanceo":
                     colors_prog = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
                                    '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
                     prog_data = []
-                    valor_prog = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
+                    inv_prog = {r['Nombre']: r['Dinero Invertido'] for _, r in df_final.iterrows()}
                     for nombre in compras_total:
-                        prog_data.append({'Mes': 0, 'Activo': nombre, 'Valor': valor_prog[nombre]})
+                        prog_data.append({'Mes': 0, 'Activo': nombre, 'Invertido': inv_prog[nombre]})
 
                     acum_prog = {k: 0.0 for k in compras_total}
                     for mes in range(1, meses_reb + 1):
@@ -1540,23 +1544,23 @@ elif pagina == "Rebalanceo":
                             else:
                                 compra = 0
                             acum_prog[nombre] += compra
-                            valor_prog[nombre] = df_final.loc[df_final['Nombre'] == nombre, 'Valor Acciones'].iloc[0] + acum_prog[nombre]
+                            inv_prog[nombre] = df_final.loc[df_final['Nombre'] == nombre, 'Dinero Invertido'].iloc[0] + acum_prog[nombre]
                         for nombre in compras_total:
-                            prog_data.append({'Mes': mes, 'Activo': nombre, 'Valor': valor_prog[nombre]})
+                            prog_data.append({'Mes': mes, 'Activo': nombre, 'Invertido': inv_prog[nombre]})
 
                     df_prog = pd.DataFrame(prog_data)
                     fig_prog = go.Figure()
                     for i, nombre in enumerate(compras_total.keys()):
                         df_act = df_prog[df_prog['Activo'] == nombre]
                         fig_prog.add_trace(go.Scatter(
-                            x=df_act['Mes'], y=df_act['Valor'],
+                            x=df_act['Mes'], y=df_act['Invertido'],
                             name=nombre, stackgroup='one', mode='lines',
                             line=dict(width=0.5, shape='spline', color=colors_prog[i % len(colors_prog)]),
-                            hovertemplate=f'<b>{nombre}</b><br>Mes %{{x}}<br>Valor: %{{y:,.0f}}€<extra></extra>'
+                            hovertemplate=f'<b>{nombre}</b><br>Mes %{{x}}<br>Invertido: %{{y:,.0f}}€<extra></extra>'
                         ))
                     fig_prog.update_layout(
                         template="plotly_dark", height=350, paper_bgcolor='rgba(0,0,0,0)',
-                        xaxis_title="Mes", yaxis_title="Valor (EUR)",
+                        xaxis_title="Mes", yaxis_title="Capital Invertido (EUR)",
                         legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
                         margin=dict(t=40), hovermode="x unified"
                     )
@@ -1570,21 +1574,21 @@ elif pagina == "Rebalanceo":
                         nombre = r_row['Nombre']
                         compra = compras_total.get(nombre, 0)
                         compra_mensual_act = compra / meses_reb if meses_reb > 0 else compra
-                        nuevo_val = r_row['Valor Acciones'] + compra
-                        nuevo_pct = nuevo_val / capital_final * 100 if capital_final > 0 else 0
+                        nuevo_inv = r_row['Dinero Invertido'] + compra
+                        nuevo_pct = nuevo_inv / capital_final * 100 if capital_final > 0 else 0
 
                         if compra < 1:
                             estado = "✅ Ya en objetivo — no necesitas comprar"
                             color_estado = "var(--accent)"
                         else:
-                            estado = f"📈 De {r_row['Peso %']:.1f}% a {nuevo_pct:.1f}% (+{compra:,.0f}€)"
+                            estado = f"📈 De {r_row['Peso Inv %']:.1f}% a {nuevo_pct:.1f}% (+{compra:,.0f}€)"
                             color_estado = "#00CC96"
 
                         with st.expander(f"{nombre} — {compra_mensual_act:,.0f}€/mes × {meses_reb} meses = {compra:,.0f}€"):
                             c1, c2, c3 = st.columns(3)
-                            c1.metric("Valor actual", f"{r_row['Valor Acciones']:,.0f}€")
+                            c1.metric("Invertido actual", f"{r_row['Dinero Invertido']:,.0f}€")
                             c2.metric("Comprar total", f"{compra:,.0f}€")
-                            c3.metric("Valor final", f"{nuevo_val:,.0f}€")
+                            c3.metric("Total invertido", f"{nuevo_inv:,.0f}€")
                             st.markdown(f"<span style='color:{color_estado}; font-weight:600;'>{estado}</span>", unsafe_allow_html=True)
                             if compra_mensual_act >= 1:
                                 meses_list = list(range(1, meses_reb + 1))
@@ -1610,7 +1614,7 @@ elif pagina == "Rebalanceo":
                     advice_cards = []
 
                     # How close does it get?
-                    diff_actual = sum(abs(r['Peso %'] - ws[r['Nombre']]) for _, r in df_final.iterrows())
+                    diff_actual = sum(abs(r['Peso Inv %'] - ws[r['Nombre']]) for _, r in df_final.iterrows())
                     if diff_actual < 3:
                         advice_cards.append(("✅", "Tu cartera ya esta muy cerca de los pesos objetivo. No necesitas un gran esfuerzo."))
                     elif total_a_comprar < 100:
@@ -1683,18 +1687,18 @@ elif pagina == "Rebalanceo":
                     else:
                         tw = {r['Nombre']: 100 / n_assets for _, r in df_final.iterrows()}
 
-                # Calculate using exact math
-                valores_s = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
+                # Calculate using exact math (basado en dinero invertido)
+                valores_s = {r['Nombre']: r['Dinero Invertido'] for _, r in df_final.iterrows()}
                 compras_strat, cap_needed = calcular_rebalanceo_compras(valores_s, tw)
                 total_buy = sum(compras_strat.values())
                 aporte_m_s = total_buy / meses_strat if meses_strat > 0 else total_buy
-                capital_final_s = total_inversiones + total_buy
+                capital_final_s = total_invertido + total_buy
 
                 # Summary
                 k1, k2, k3 = st.columns(3)
                 k1.metric("Inversion necesaria", f"{total_buy:,.0f}€")
                 k2.metric("Aporte mensual", f"{aporte_m_s:,.0f}€")
-                k3.metric("Cartera final", f"{capital_final_s:,.0f}€")
+                k3.metric("Total invertido final", f"{capital_final_s:,.0f}€")
 
                 # Table
                 wt_data = []
@@ -1702,7 +1706,7 @@ elif pagina == "Rebalanceo":
                     n = r['Nombre']
                     wt_data.append({
                         'Activo': n,
-                        'Actual %': r['Peso %'],
+                        'Actual %': r['Peso Inv %'],
                         'Objetivo %': tw[n],
                         'Comprar Total': compras_strat[n],
                         'Comprar/Mes': compras_strat[n] / meses_strat if meses_strat > 0 else compras_strat[n],
