@@ -1291,7 +1291,7 @@ elif pagina == "Liquidez":
         c5.metric("Total", f"{patrimonio_total:,.2f} EUR")
 
 # ======================================================================
-# REBALANCEO -- SOLO COMPRANDO (PLAN PERIODICO)
+# REBALANCEO -- SOLO COMPRANDO (CALCULO AUTOMATICO)
 # ======================================================================
 elif pagina == "Rebalanceo":
     st.markdown("## Rebalanceo Inteligente")
@@ -1303,11 +1303,10 @@ elif pagina == "Rebalanceo":
         </div>""", unsafe_allow_html=True)
         st.warning("Anade activos primero.")
     else:
-        # ---- Real-time portfolio analysis for advice ----
+        # ---- Real-time portfolio analysis ----
         wts = df_final['Peso %'].tolist()
         names = df_final['Nombre'].tolist()
         max_w, min_w = max(wts), min(wts)
-        max_diff = max_w - min_w if len(wts) > 1 else 0
         over_asset = names[wts.index(max_w)]
         under_asset = names[wts.index(min_w)]
         weights_arr = (df_final['Peso %'] / 100).tolist()
@@ -1325,11 +1324,9 @@ elif pagina == "Rebalanceo":
             consejos.append("💡 Diversificacion aceptable pero mejorable. Equilibrar pesos te dara mas estabilidad.")
         else:
             consejos.append("✅ Buena diversificacion. Mantener un rebalanceo periodico te ayudara a conservarla.")
-
         if len(wts) <= 2:
-            consejos.append("💡 Con solo {n} activo(s), tu cartera es muy concentrada. Considera anadir mas posiciones.".format(n=len(wts)))
+            consejos.append(f"💡 Con solo {len(wts)} activo(s), tu cartera es muy concentrada. Considera anadir mas posiciones.")
 
-        # Check if any asset has drifted significantly from equal weight
         equal_w = 100 / len(wts)
         drifts = [(names[i], wts[i] - equal_w) for i in range(len(wts))]
         big_drifts = [(n, d) for n, d in drifts if abs(d) > 10]
@@ -1340,193 +1337,177 @@ elif pagina == "Rebalanceo":
         reb_intro = f"""<div class='info-tip'>
             <span class='tip-icon'>⚖️</span> <b>Rebalanceo solo comprando.</b>
             Tu cartera tiene <b>{len(wts)} activos</b> con un patrimonio de <b>{total_inversiones:,.0f}EUR</b>.
-            Aqui generas un <b>plan de compras periodicas</b> para alcanzar tus pesos objetivo
-            mes a mes, sin vender ningun activo.
+            Selecciona los pesos objetivo y el plazo: el sistema calcula <b>matematicamente</b>
+            cuanto necesitas invertir cada mes, sin vender ningun activo.
         </div>"""
         st.markdown(reb_intro, unsafe_allow_html=True)
 
-        # Show real-time advice
         st.markdown("### 📋 Analisis de tu cartera actual")
         for consejo in consejos:
             st.markdown(f"<div style='padding:8px 14px; margin:4px 0; background:var(--bg-card); border-radius:8px; border-left:3px solid var(--accent); font-size:0.9rem;'>{consejo}</div>", unsafe_allow_html=True)
 
         st.markdown("---")
 
+        # ---- Helper: buy-only rebalance math ----
+        def calcular_rebalanceo_compras(valores_actuales, pesos_objetivo):
+            """
+            Calcula el capital minimo B necesario para alcanzar los pesos objetivo
+            solo comprando (nunca vendiendo).
+            Matematica: B_i = w_i * (T + B) - V_i >= 0
+            => B >= V_i/w_i - T para todo i
+            => B = max(V_i/w_i) - T
+            Retorna dict {nombre: euros_a_comprar}
+            """
+            T = sum(valores_actuales.values())
+            # Find minimum new capital needed
+            ratios = []
+            for nombre, w in pesos_objetivo.items():
+                if w > 0:
+                    ratios.append(valores_actuales.get(nombre, 0) / (w / 100))
+                elif valores_actuales.get(nombre, 0) > 0:
+                    ratios.append(float('inf'))
+            if not ratios:
+                return {}, 0
+            B = max(max(ratios) - T, 0)
+            new_total = T + B
+            compras = {}
+            for nombre, w in pesos_objetivo.items():
+                target_val = (w / 100) * new_total
+                actual_val = valores_actuales.get(nombre, 0)
+                compras[nombre] = max(0, round(target_val - actual_val, 2))
+            return compras, B
+
         tab_manual, tab_strat, tab_suggest = st.tabs(["Plan Personalizado", "Estrategias", "Sugerencias"])
 
         # ============================================================
-        # -- MANUAL: Plan de compras periodico --
+        # -- MANUAL --
         # ============================================================
         with tab_manual:
-            st.markdown("#### Configura tu plan de rebalanceo")
-            col_config, col_weights = st.columns([1, 1])
-
+            st.markdown("#### 1. Selecciona los pesos objetivo")
             ws = {}
             tot_w = 0
-            with col_weights:
-                st.markdown("**Pesos objetivo (%)**")
-                for idx_r, r_row in df_final.iterrows():
-                    c_n, c_w = st.columns([2, 1])
-                    with c_n:
+            cols_per_row = min(len(df_final), 4)
+            asset_list = list(df_final.iterrows())
+
+            for batch_start in range(0, len(asset_list), cols_per_row):
+                batch = asset_list[batch_start:batch_start + cols_per_row]
+                cols = st.columns(len(batch))
+                for col, (idx_r, r_row) in zip(cols, batch):
+                    with col:
                         st.markdown(f"**{r_row['Nombre']}**")
-                        st.caption(f"Actual: {r_row['Peso %']:.1f}% — {r_row['Valor Acciones']:,.0f}EUR")
-                    with c_w:
-                        w = st.number_input("%", 0, 100, int(round(r_row['Peso %'])), key=f"reb_{idx_r}",
-                                             label_visibility="collapsed")
+                        st.caption(f"Actual: {r_row['Peso %']:.1f}%  ({r_row['Valor Acciones']:,.0f}€)")
+                        w = st.number_input("Objetivo %", 0, 100, int(round(r_row['Peso %'])),
+                                             key=f"reb_{idx_r}", label_visibility="collapsed")
                         ws[r_row['Nombre']] = w
                         tot_w += w
-                color_t = "var(--accent)" if tot_w == 100 else "var(--red)"
-                st.markdown(f"**Total: <span style='color:{color_t}'>{tot_w}%</span>**", unsafe_allow_html=True)
 
-            with col_config:
-                st.markdown("**Parametros del plan**")
-                meses_reb = st.slider("Meses para rebalancear", 1, 36, 6,
-                                       help="En cuantos meses quieres alcanzar los pesos objetivo. El aporte se repartira uniformemente.")
-                aporte_total = st.number_input("Aporte total disponible (EUR)", 0.0, step=100.0, value=0.0,
-                                                help="Capital total nuevo que vas a invertir a lo largo del periodo. Se puede sumar la liquidez actual.")
-                usar_liquidez = st.checkbox("Sumar liquidez actual al aporte", value=True)
-                if usar_liquidez:
-                    capital_disponible = aporte_total + total_liquidez
-                    st.caption(f"Liquidez actual: {total_liquidez:,.2f}EUR → Total disponible: {capital_disponible:,.2f}EUR")
-                else:
-                    capital_disponible = aporte_total
+            color_t = "var(--accent)" if tot_w == 100 else "var(--red)"
+            st.markdown(f"**Total pesos: <span style='color:{color_t}'>{tot_w}%</span>**", unsafe_allow_html=True)
 
-                aporte_mensual = capital_disponible / meses_reb if meses_reb > 0 else capital_disponible
-                st.metric("Aporte mensual", f"{aporte_mensual:,.2f} EUR",
-                           help="Esto es lo que invertiras cada mes para alcanzar los pesos objetivo.")
+            st.markdown("#### 2. Elige el plazo")
+            meses_reb = st.slider("Meses para alcanzar los pesos objetivo", 1, 36, 6,
+                                   help="El sistema divide el total a invertir entre estos meses.")
 
-            # ---- Calculate and display plan ----
             if tot_w != 100:
-                st.warning(f"Los pesos deben sumar 100% (actual: {tot_w}%). Ajusta antes de calcular.")
+                st.warning(f"Los pesos deben sumar 100% (actual: {tot_w}%). Ajusta antes de continuar.")
             else:
-                if st.button("📅 Generar Plan de Compras", type="primary", use_container_width=True):
-                    # Calculate total target for each asset after adding new capital
-                    capital_final = total_inversiones + capital_disponible
-                    compras_total = {}
-                    for _, r_row in df_final.iterrows():
-                        target_val = capital_final * ws[r_row['Nombre']] / 100
-                        diff = target_val - r_row['Valor Acciones']
-                        compras_total[r_row['Nombre']] = max(0, diff)  # SOLO COMPRAR
-
+                if st.button("📅 Calcular Plan de Compras", type="primary", use_container_width=True):
+                    # --- Core math ---
+                    valores_actuales = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
+                    compras_total, capital_necesario = calcular_rebalanceo_compras(valores_actuales, ws)
                     total_a_comprar = sum(compras_total.values())
+                    aporte_mensual = total_a_comprar / meses_reb if meses_reb > 0 else total_a_comprar
+                    capital_final = total_inversiones + total_a_comprar
 
-                    # If total purchases exceed available capital, scale down proportionally
-                    if total_a_comprar > capital_disponible and total_a_comprar > 0:
-                        factor = capital_disponible / total_a_comprar
-                        compras_total = {k: v * factor for k, v in compras_total.items()}
-                        total_a_comprar = capital_disponible
-                        st.info("💡 El capital disponible no alcanza para el rebalanceo completo. Se ha ajustado proporcionalmente para acercarte lo maximo posible a los pesos objetivo.")
+                    # ---- Summary metrics ----
+                    st.markdown("### 📊 Tu Plan de Rebalanceo")
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Inversion necesaria", f"{total_a_comprar:,.0f}€",
+                              help="Capital total que necesitas aportar para alcanzar los pesos objetivo, calculado matematicamente.")
+                    k2.metric("Aporte mensual", f"{aporte_mensual:,.0f}€",
+                              help="Divide el total entre los meses seleccionados.")
+                    k3.metric("Duracion", f"{meses_reb} meses")
+                    k4.metric("Cartera final", f"{capital_final:,.0f}€")
 
-                    # Distribute purchases across months
-                    plan_mensual = []
-                    valores_progresivos = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
+                    # Liquidity check
+                    if total_liquidez >= total_a_comprar:
+                        st.success(f"✅ Tu liquidez actual ({total_liquidez:,.0f}€) cubre el rebalanceo completo.")
+                    elif total_liquidez > 0:
+                        falta = total_a_comprar - total_liquidez
+                        st.warning(f"💰 Tu liquidez ({total_liquidez:,.0f}€) cubre parte. Necesitas aportar {falta:,.0f}€ adicionales en {meses_reb} meses ({falta/meses_reb:,.0f}€/mes).")
+                    else:
+                        st.info(f"💰 Necesitas aportar {total_a_comprar:,.0f}€ en {meses_reb} meses ({aporte_mensual:,.0f}€/mes).")
 
-                    for mes in range(1, meses_reb + 1):
-                        mes_data = {'Mes': mes}
-                        presupuesto_mes = aporte_mensual
-                        compras_mes = {}
+                    # ---- Per-asset summary table ----
+                    resumen_data = []
+                    for _, r_row in df_final.iterrows():
+                        nombre = r_row['Nombre']
+                        compra = compras_total.get(nombre, 0)
+                        nuevo_val = r_row['Valor Acciones'] + compra
+                        nuevo_pct = nuevo_val / capital_final * 100 if capital_final > 0 else 0
+                        resumen_data.append({
+                            'Activo': nombre,
+                            'Valor Actual': r_row['Valor Acciones'],
+                            'Peso Actual': r_row['Peso %'],
+                            'Peso Objetivo': ws[nombre],
+                            'Comprar Total': compra,
+                            'Comprar/Mes': compra / meses_reb if meses_reb > 0 else compra,
+                            'Peso Final': nuevo_pct,
+                        })
+                    df_resumen = pd.DataFrame(resumen_data)
+                    st.dataframe(df_resumen.style.format({
+                        'Valor Actual': '{:,.0f}€', 'Peso Actual': '{:.1f}%', 'Peso Objetivo': '{:.0f}%',
+                        'Comprar Total': '{:,.0f}€', 'Comprar/Mes': '{:,.0f}€', 'Peso Final': '{:.1f}%'
+                    }).background_gradient(subset=['Comprar/Mes'], cmap='Greens', vmin=0),
+                        use_container_width=True)
 
-                        # Distribute this month's budget proportionally to remaining purchases
-                        restante = {k: v - sum(m.get(k, 0) for m in plan_mensual)
-                                     for k, v in compras_total.items()}
-                        restante = {k: max(0, v) for k, v in restante.items()}
-                        total_restante = sum(restante.values())
+                    # ---- Monthly plan table ----
+                    st.markdown("### 📅 Plan Mensual Detallado")
+                    st.markdown("""<div class='chart-explain'>
+                        Cuanto invertir en cada activo cada mes (en EUR). Siguiendo este plan
+                        alcanzaras los pesos objetivo en {m} meses sin vender nada.
+                    </div>""".format(m=meses_reb), unsafe_allow_html=True)
 
-                        if total_restante > 0:
-                            for nombre in compras_total:
-                                proporcion = restante[nombre] / total_restante
-                                compra_este_mes = min(presupuesto_mes * proporcion, restante[nombre])
-                                compras_mes[nombre] = round(compra_este_mes, 2)
-                                valores_progresivos[nombre] = valores_progresivos.get(nombre, 0) + compra_este_mes
-
-                        mes_data.update(compras_mes)
-                        mes_data['Total Mes'] = sum(compras_mes.values())
-                        plan_mensual.append(compras_mes)  # Keep raw dict for accumulation
-                        # Store full row
-                        plan_mensual[-1] = {**mes_data, **{f"_raw_{k}": v for k, v in compras_mes.items()}}
-
-                    # Build monthly plan dataframe
                     plan_rows = []
-                    acumulado_por_activo = {r['Nombre']: 0.0 for _, r in df_final.iterrows()}
-                    valor_actual = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
-
+                    acumulado = {k: 0.0 for k in compras_total}
                     for mes in range(1, meses_reb + 1):
-                        restante = {k: compras_total[k] - acumulado_por_activo[k] for k in compras_total}
+                        restante = {k: compras_total[k] - acumulado[k] for k in compras_total}
                         restante = {k: max(0, v) for k, v in restante.items()}
-                        total_restante = sum(restante.values())
-
-                        compras_mes = {}
-                        if total_restante > 0:
-                            for nombre in compras_total:
-                                proporcion = restante[nombre] / total_restante if total_restante > 0 else 0
-                                compra = min(aporte_mensual * proporcion, restante[nombre])
-                                compras_mes[nombre] = round(compra, 2)
-                                acumulado_por_activo[nombre] += compra
-
+                        total_rest = sum(restante.values())
                         row = {'Mes': f"Mes {mes}"}
                         for nombre in compras_total:
-                            row[nombre] = compras_mes.get(nombre, 0)
-                        row['Total'] = sum(compras_mes.values())
+                            if total_rest > 0:
+                                prop = restante[nombre] / total_rest
+                                compra = min(aporte_mensual * prop, restante[nombre])
+                            else:
+                                compra = 0
+                            acumulado[nombre] += compra
+                            row[nombre] = round(compra, 2)
+                        row['Total'] = round(sum(v for k, v in row.items() if k != 'Mes'), 2)
                         plan_rows.append(row)
 
                     df_plan = pd.DataFrame(plan_rows)
-
-                    # ---- Summary ----
-                    st.markdown("### 📊 Resumen del Plan")
-                    k1, k2, k3, k4 = st.columns(4)
-                    k1.metric("Aporte mensual", f"{aporte_mensual:,.0f}€")
-                    k2.metric("Total a invertir", f"{total_a_comprar:,.0f}€")
-                    k3.metric("Duracion", f"{meses_reb} meses")
-                    k4.metric("Capital final estimado", f"{capital_final:,.0f}€")
-
-                    # ---- Monthly plan table ----
-                    st.markdown("### 📅 Plan de Compras Mensual")
-                    st.markdown("""<div class='chart-explain'>
-                        Esta tabla muestra <b>cuanto invertir en cada activo cada mes</b>.
-                        Todos los importes estan en EUR. Siguiendo este plan llegaras progresivamente
-                        a los pesos objetivo sin vender ningun activo.
-                    </div>""", unsafe_allow_html=True)
-
-                    format_dict = {col: '{:,.2f}' for col in df_plan.columns if col != 'Mes'}
-                    st.dataframe(df_plan.style.format(format_dict).background_gradient(
+                    fmt = {col: '{:,.2f}' for col in df_plan.columns if col != 'Mes'}
+                    st.dataframe(df_plan.style.format(fmt).background_gradient(
                         subset=[c for c in df_plan.columns if c not in ['Mes', 'Total']],
                         cmap='Greens', vmin=0
                     ), use_container_width=True, height=min(400, 40 + 35 * len(df_plan)))
 
-                    # ---- Before vs After chart ----
+                    # ---- Bar chart: actual vs objective vs final ----
                     st.markdown("### Peso Actual vs Objetivo")
-                    reb_chart_data = []
-                    total_final_val = 0
-                    for _, r_row in df_final.iterrows():
-                        compra = compras_total.get(r_row['Nombre'], 0)
-                        nuevo_val = r_row['Valor Acciones'] + compra
-                        total_final_val += nuevo_val
-                    for _, r_row in df_final.iterrows():
-                        compra = compras_total.get(r_row['Nombre'], 0)
-                        nuevo_val = r_row['Valor Acciones'] + compra
-                        nuevo_pct = nuevo_val / total_final_val * 100 if total_final_val > 0 else 0
-                        reb_chart_data.append({
-                            'Activo': r_row['Nombre'],
-                            'Actual %': r_row['Peso %'],
-                            'Objetivo %': ws[r_row['Nombre']],
-                            'Tras Rebalanceo %': nuevo_pct,
-                            'Comprar EUR': compra,
-                        })
-                    df_reb = pd.DataFrame(reb_chart_data)
-
                     fig_reb = go.Figure()
-                    fig_reb.add_trace(go.Bar(name='Peso Actual', x=df_reb['Activo'], y=df_reb['Actual %'],
+                    fig_reb.add_trace(go.Bar(name='Actual', x=df_resumen['Activo'], y=df_resumen['Peso Actual'],
                                               marker_color='#636EFA',
                                               marker_line=dict(color='rgba(255,255,255,0.15)', width=1),
                                               hovertemplate='<b>%{x}</b><br>Actual: %{y:.1f}%<extra></extra>'))
-                    fig_reb.add_trace(go.Bar(name='Objetivo', x=df_reb['Activo'], y=df_reb['Objetivo %'],
-                                              marker_color='#FFA15A', opacity=0.5,
+                    fig_reb.add_trace(go.Bar(name='Objetivo', x=df_resumen['Activo'], y=df_resumen['Peso Objetivo'],
+                                              marker_color='#FFA15A', opacity=0.6,
                                               marker_line=dict(color='rgba(255,255,255,0.15)', width=1),
                                               hovertemplate='<b>%{x}</b><br>Objetivo: %{y:.1f}%<extra></extra>'))
-                    fig_reb.add_trace(go.Bar(name='Tras Rebalanceo', x=df_reb['Activo'], y=df_reb['Tras Rebalanceo %'],
+                    fig_reb.add_trace(go.Bar(name='Tras Rebalanceo', x=df_resumen['Activo'], y=df_resumen['Peso Final'],
                                               marker_color='#00CC96',
                                               marker_line=dict(color='rgba(255,255,255,0.15)', width=1),
-                                              hovertemplate='<b>%{x}</b><br>Nuevo: %{y:.1f}%<extra></extra>'))
+                                              hovertemplate='<b>%{x}</b><br>Final: %{y:.1f}%<extra></extra>'))
                     fig_reb.update_layout(template="plotly_dark", barmode='group', height=350,
                                            paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Peso (%)",
                                            legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
@@ -1534,17 +1515,16 @@ elif pagina == "Rebalanceo":
                     fig_reb.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
                     st.plotly_chart(fig_reb, use_container_width=True)
 
-                    # ---- Monthly progression chart (area) ----
+                    # ---- Area chart: monthly progression ----
                     st.markdown("### 📈 Evolucion mensual de la cartera")
                     st.markdown("""<div class='chart-explain'>
-                        Este grafico muestra como crece cada posicion mes a mes con tus aportaciones.
-                        Las areas representan el valor acumulado de cada activo.
+                        Como crece cada posicion mes a mes siguiendo el plan de compras.
                     </div>""", unsafe_allow_html=True)
 
-                    # Build progression data
+                    colors_prog = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+                                   '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
                     prog_data = []
                     valor_prog = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
-                    # Month 0 = current
                     for nombre in compras_total:
                         prog_data.append({'Mes': 0, 'Activo': nombre, 'Valor': valor_prog[nombre]})
 
@@ -1555,8 +1535,8 @@ elif pagina == "Rebalanceo":
                         total_rest = sum(restante.values())
                         for nombre in compras_total:
                             if total_rest > 0:
-                                proporcion = restante[nombre] / total_rest
-                                compra = min(aporte_mensual * proporcion, restante[nombre])
+                                prop = restante[nombre] / total_rest
+                                compra = min(aporte_mensual * prop, restante[nombre])
                             else:
                                 compra = 0
                             acum_prog[nombre] += compra
@@ -1565,8 +1545,6 @@ elif pagina == "Rebalanceo":
                             prog_data.append({'Mes': mes, 'Activo': nombre, 'Valor': valor_prog[nombre]})
 
                     df_prog = pd.DataFrame(prog_data)
-                    colors_prog = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
-                                   '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
                     fig_prog = go.Figure()
                     for i, nombre in enumerate(compras_total.keys()):
                         df_act = df_prog[df_prog['Activo'] == nombre]
@@ -1583,7 +1561,7 @@ elif pagina == "Rebalanceo":
                         margin=dict(t=40), hovermode="x unified"
                     )
                     fig_prog.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
-                    fig_prog.update_xaxes(gridcolor='rgba(255,255,255,0.04)', dtick=1)
+                    fig_prog.update_xaxes(gridcolor='rgba(255,255,255,0.04)', dtick=max(1, meses_reb // 12))
                     st.plotly_chart(fig_prog, use_container_width=True)
 
                     # ---- Per-asset detail ----
@@ -1591,33 +1569,27 @@ elif pagina == "Rebalanceo":
                     for _, r_row in df_final.iterrows():
                         nombre = r_row['Nombre']
                         compra = compras_total.get(nombre, 0)
-                        compra_mensual = compra / meses_reb if meses_reb > 0 else compra
+                        compra_mensual_act = compra / meses_reb if meses_reb > 0 else compra
                         nuevo_val = r_row['Valor Acciones'] + compra
-                        nuevo_pct = nuevo_val / (total_inversiones + capital_disponible) * 100 if (total_inversiones + capital_disponible) > 0 else 0
-                        diff_pct = nuevo_pct - r_row['Peso %']
+                        nuevo_pct = nuevo_val / capital_final * 100 if capital_final > 0 else 0
 
                         if compra < 1:
-                            estado = "✅ Ya en objetivo"
+                            estado = "✅ Ya en objetivo — no necesitas comprar"
                             color_estado = "var(--accent)"
-                        elif diff_pct > 5:
-                            estado = f"📈 Subira de {r_row['Peso %']:.1f}% a {nuevo_pct:.1f}%"
-                            color_estado = "#00CC96"
                         else:
-                            estado = f"↗️ Ajuste menor ({diff_pct:+.1f}pp)"
-                            color_estado = "#FFA15A"
+                            estado = f"📈 De {r_row['Peso %']:.1f}% a {nuevo_pct:.1f}% (+{compra:,.0f}€)"
+                            color_estado = "#00CC96"
 
-                        with st.expander(f"{nombre} — {compra_mensual:,.0f}€/mes × {meses_reb} meses = {compra:,.0f}€ total"):
+                        with st.expander(f"{nombre} — {compra_mensual_act:,.0f}€/mes × {meses_reb} meses = {compra:,.0f}€"):
                             c1, c2, c3 = st.columns(3)
                             c1.metric("Valor actual", f"{r_row['Valor Acciones']:,.0f}€")
                             c2.metric("Comprar total", f"{compra:,.0f}€")
                             c3.metric("Valor final", f"{nuevo_val:,.0f}€")
                             st.markdown(f"<span style='color:{color_estado}; font-weight:600;'>{estado}</span>", unsafe_allow_html=True)
-                            if compra_mensual >= 1:
-                                # Mini bar showing monthly contribution
+                            if compra_mensual_act >= 1:
                                 meses_list = list(range(1, meses_reb + 1))
-                                compras_mensuales = [compra_mensual] * meses_reb
-                                # Last month gets the remainder
-                                total_prev = compra_mensual * (meses_reb - 1)
+                                compras_mensuales = [compra_mensual_act] * meses_reb
+                                total_prev = compra_mensual_act * (meses_reb - 1)
                                 compras_mensuales[-1] = compra - total_prev
                                 fig_mini = go.Figure(go.Bar(
                                     x=meses_list, y=compras_mensuales,
@@ -1628,38 +1600,39 @@ elif pagina == "Rebalanceo":
                                 fig_mini.update_layout(
                                     template="plotly_dark", height=150, paper_bgcolor='rgba(0,0,0,0)',
                                     margin=dict(l=0, r=0, t=5, b=25), xaxis_title="Mes", yaxis_title="€",
-                                    xaxis=dict(dtick=1)
+                                    xaxis=dict(dtick=max(1, meses_reb // 12))
                                 )
                                 fig_mini.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
                                 st.plotly_chart(fig_mini, use_container_width=True)
 
-                    # ---- Final advice based on result ----
+                    # ---- Consejos finales ----
                     st.markdown("### 💬 Consejos sobre tu rebalanceo")
-                    diff_actual_objetivo = sum(abs(df_reb['Actual %'].iloc[i] - df_reb['Objetivo %'].iloc[i])
-                                                for i in range(len(df_reb)))
-                    diff_nuevo_objetivo = sum(abs(df_reb['Tras Rebalanceo %'].iloc[i] - df_reb['Objetivo %'].iloc[i])
-                                               for i in range(len(df_reb)))
-
                     advice_cards = []
-                    if diff_nuevo_objetivo < 2:
-                        advice_cards.append(("✅", "El plan alcanza practicamente los pesos objetivo. Excelente configuracion."))
-                    elif diff_nuevo_objetivo < diff_actual_objetivo * 0.5:
-                        advice_cards.append(("👍", f"El rebalanceo reduce la desviacion de {diff_actual_objetivo:.1f}pp a {diff_nuevo_objetivo:.1f}pp. Gran mejora."))
+
+                    # How close does it get?
+                    diff_actual = sum(abs(r['Peso %'] - ws[r['Nombre']]) for _, r in df_final.iterrows())
+                    if diff_actual < 3:
+                        advice_cards.append(("✅", "Tu cartera ya esta muy cerca de los pesos objetivo. No necesitas un gran esfuerzo."))
+                    elif total_a_comprar < 100:
+                        advice_cards.append(("✅", f"Solo necesitas {total_a_comprar:,.0f}€ para alcanzar el equilibrio perfecto."))
                     else:
-                        advice_cards.append(("💡", f"Con el capital disponible, la desviacion baja de {diff_actual_objetivo:.1f}pp a {diff_nuevo_objetivo:.1f}pp. Considera aumentar el aporte para un rebalanceo mas completo."))
+                        advice_cards.append(("📊", f"Necesitas aportar <b>{total_a_comprar:,.0f}€</b> ({aporte_mensual:,.0f}€/mes durante {meses_reb} meses) para alcanzar exactamente los pesos que quieres."))
 
-                    if meses_reb <= 2 and capital_disponible > total_inversiones * 0.3:
-                        advice_cards.append(("⚡", "Rebalanceo rapido con aporte grande. Asegurate de tener el capital disponible enseguida."))
-                    elif meses_reb >= 12:
-                        advice_cards.append(("🐢", f"Plan a {meses_reb} meses. Revisa y ajusta trimestralmente por si cambian las condiciones de mercado."))
+                    if meses_reb <= 2:
+                        advice_cards.append(("⚡", f"Plan agresivo de {meses_reb} mes(es). Requiere {aporte_mensual:,.0f}€/mes. Asegurate de tener esa capacidad de ahorro."))
+                    elif meses_reb <= 6:
+                        advice_cards.append(("👍", f"Plazo razonable. {aporte_mensual:,.0f}€/mes es un ritmo solido."))
+                    elif meses_reb >= 18:
+                        advice_cards.append(("🐢", f"Plan a {meses_reb} meses. Revisa trimestralmente: los precios cambian y podrias necesitar ajustar los importes."))
 
-                    if capital_disponible < total_a_comprar * 0.5:
-                        advice_cards.append(("💰", "El capital disponible cubre menos de la mitad de lo necesario. El plan se ajusta proporcionalmente, pero tardara mas en alcanzar el equilibrio."))
-
-                    # Check if any asset gets 0 purchase (already over target)
                     over_target = [n for n, c in compras_total.items() if c < 1]
                     if over_target:
-                        advice_cards.append(("📌", f"<b>{', '.join(esc(n) for n in over_target)}</b> ya {'esta' if len(over_target)==1 else 'estan'} por encima del peso objetivo. No se comprara mas de {'este activo' if len(over_target)==1 else 'estos activos'}."))
+                        advice_cards.append(("📌", f"<b>{', '.join(esc(n) for n in over_target)}</b> ya {'supera' if len(over_target)==1 else 'superan'} el peso objetivo. El calculo redirige el capital a los activos infraponderados."))
+
+                    under_buy = [(n, c) for n, c in compras_total.items() if c > 0]
+                    if under_buy:
+                        biggest = max(under_buy, key=lambda x: x[1])
+                        advice_cards.append(("🎯", f"La mayor compra es <b>{esc(biggest[0])}</b> con {biggest[1]:,.0f}€ ({biggest[1]/meses_reb:,.0f}€/mes). Es el activo mas infraponderado respecto a tu objetivo."))
 
                     for icon, text in advice_cards:
                         st.markdown(f"""<div style='padding:10px 16px; margin:6px 0; background:var(--bg-card);
@@ -1672,8 +1645,8 @@ elif pagina == "Rebalanceo":
         # ============================================================
         with tab_strat:
             st.markdown("""<div class='chart-explain'>
-                Elige una estrategia predefinida. El sistema calculara los pesos objetivo automaticamente
-                y generara el plan de compras en base al periodo que configures.
+                Elige una estrategia predefinida. El sistema calcula automaticamente los pesos
+                y el capital exacto que necesitas aportar cada mes.
             </div>""", unsafe_allow_html=True)
             estrategia = st.selectbox("Estrategia:", [
                 "Equiponderado",
@@ -1682,13 +1655,7 @@ elif pagina == "Rebalanceo":
             ], help="Equiponderado = misma cantidad en cada activo. Momentum = mas en los que mejor van. Min. Volatilidad = mas en los mas estables.")
 
             meses_strat = st.slider("Meses para rebalancear", 1, 36, 6, key="meses_strat",
-                                     help="Numero de meses para completar el rebalanceo con aportaciones periodicas.")
-            aporte_strat = st.number_input("Aporte total disponible (EUR)", 0.0, step=100.0, key="aporte_strat")
-            usar_liq_strat = st.checkbox("Sumar liquidez actual", value=True, key="liq_strat")
-            cap_strat = aporte_strat + (total_liquidez if usar_liq_strat else 0)
-            aporte_mensual_strat = cap_strat / meses_strat if meses_strat > 0 else cap_strat
-
-            st.caption(f"Capital disponible: **{cap_strat:,.0f}EUR** → Aporte mensual: **{aporte_mensual_strat:,.0f}EUR**")
+                                     help="Numero de meses para alcanzar los pesos objetivo.")
 
             if st.button("Calcular Plan", type="primary", key="calc_strat"):
                 n_assets = len(df_final)
@@ -1716,37 +1683,37 @@ elif pagina == "Rebalanceo":
                     else:
                         tw = {r['Nombre']: 100 / n_assets for _, r in df_final.iterrows()}
 
-                capital_final_s = total_inversiones + cap_strat
-                # Calculate buy-only purchases
-                compras_strat = {}
-                for _, r in df_final.iterrows():
-                    target_val = capital_final_s * tw[r['Nombre']] / 100
-                    compras_strat[r['Nombre']] = max(0, target_val - r['Valor Acciones'])
-
+                # Calculate using exact math
+                valores_s = {r['Nombre']: r['Valor Acciones'] for _, r in df_final.iterrows()}
+                compras_strat, cap_needed = calcular_rebalanceo_compras(valores_s, tw)
                 total_buy = sum(compras_strat.values())
-                if total_buy > cap_strat and total_buy > 0:
-                    factor = cap_strat / total_buy
-                    compras_strat = {k: v * factor for k, v in compras_strat.items()}
-                    total_buy = cap_strat
+                aporte_m_s = total_buy / meses_strat if meses_strat > 0 else total_buy
+                capital_final_s = total_inversiones + total_buy
 
-                # Show target weights
-                st.markdown("**Pesos objetivo de la estrategia:**")
+                # Summary
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Inversion necesaria", f"{total_buy:,.0f}€")
+                k2.metric("Aporte mensual", f"{aporte_m_s:,.0f}€")
+                k3.metric("Cartera final", f"{capital_final_s:,.0f}€")
+
+                # Table
                 wt_data = []
                 for _, r in df_final.iterrows():
+                    n = r['Nombre']
                     wt_data.append({
-                        'Activo': r['Nombre'],
+                        'Activo': n,
                         'Actual %': r['Peso %'],
-                        'Objetivo %': tw[r['Nombre']],
-                        'Comprar EUR': compras_strat[r['Nombre']],
-                        'EUR/mes': compras_strat[r['Nombre']] / meses_strat if meses_strat > 0 else compras_strat[r['Nombre']]
+                        'Objetivo %': tw[n],
+                        'Comprar Total': compras_strat[n],
+                        'Comprar/Mes': compras_strat[n] / meses_strat if meses_strat > 0 else compras_strat[n],
                     })
                 df_strat = pd.DataFrame(wt_data)
                 st.dataframe(df_strat.style.format({
-                    'Actual %': '{:.1f}', 'Objetivo %': '{:.1f}', 'Comprar EUR': '{:,.2f}', 'EUR/mes': '{:,.2f}'
-                }).background_gradient(subset=['Comprar EUR'], cmap='Greens', vmin=0), use_container_width=True)
+                    'Actual %': '{:.1f}', 'Objetivo %': '{:.1f}', 'Comprar Total': '{:,.0f}€', 'Comprar/Mes': '{:,.0f}€'
+                }).background_gradient(subset=['Comprar/Mes'], cmap='Greens', vmin=0), use_container_width=True)
 
-                # Monthly plan for strategy
-                st.markdown(f"**Plan mensual ({meses_strat} meses):**")
+                # Monthly plan
+                st.markdown(f"**📅 Plan mensual ({meses_strat} meses):**")
                 plan_rows_s = []
                 acum_s = {k: 0.0 for k in compras_strat}
                 for mes in range(1, meses_strat + 1):
@@ -1757,12 +1724,12 @@ elif pagina == "Rebalanceo":
                     for nombre in compras_strat:
                         if total_rest > 0:
                             prop = restante[nombre] / total_rest
-                            compra = min(aporte_mensual_strat * prop, restante[nombre])
+                            compra = min(aporte_m_s * prop, restante[nombre])
                         else:
                             compra = 0
                         acum_s[nombre] += compra
                         row[nombre] = round(compra, 2)
-                    row['Total'] = sum(v for k, v in row.items() if k != 'Mes')
+                    row['Total'] = round(sum(v for k, v in row.items() if k != 'Mes'), 2)
                     plan_rows_s.append(row)
 
                 df_plan_s = pd.DataFrame(plan_rows_s)
@@ -1772,21 +1739,13 @@ elif pagina == "Rebalanceo":
                     cmap='Greens', vmin=0
                 ), use_container_width=True, height=min(400, 40 + 35 * len(df_plan_s)))
 
-                # Summary
-                disponible_s = cap_strat
-                ok_msg = "✅ Capital suficiente" if disponible_s >= total_buy else f"⚠️ Faltan {total_buy - disponible_s:,.0f}€"
-                st.markdown(f"""
-                ---
-                **Resumen:** Total a invertir: **{total_buy:,.2f}€** — Aporte mensual: **{aporte_mensual_strat:,.0f}€** — {ok_msg}
-                """)
-
-                # Strategy-specific advice
+                # Strategy advice
                 if estrategia == "Equiponderado":
-                    st.info("💡 **Equiponderado:** Cada activo tendra el mismo peso. Ideal si no tienes preferencia y quieres maxima diversificacion.")
+                    st.info("💡 **Equiponderado:** Cada activo tendra el mismo peso. Ideal para maxima diversificacion sin preferencias.")
                 elif estrategia == "Momentum (mas a ganadores)":
-                    st.info("💡 **Momentum:** Apuestas mas por los activos con mejor rentabilidad reciente. Mayor potencial pero tambien mayor riesgo si la tendencia cambia.")
+                    st.info("💡 **Momentum:** Mas peso a los activos con mejor rentabilidad reciente. Mayor potencial pero mas riesgo si cambia la tendencia.")
                 else:
-                    st.info("💡 **Minima Volatilidad:** Priorizas los activos mas estables. Menor rentabilidad esperada pero tambien menores sustos.")
+                    st.info("💡 **Minima Volatilidad:** Priorizas estabilidad. Los activos menos volatiles reciben mas peso.")
 
         # ============================================================
         # -- SUGERENCIAS --
