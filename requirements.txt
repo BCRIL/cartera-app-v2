@@ -6,4 +6,3 @@ supabase
 plotly
 numpy
 duckduckgo_search
-openai
