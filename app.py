@@ -9,6 +9,7 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 import re
+import html as html_module
 from duckduckgo_search import DDGS
 
 # --- CONFIGURACION GLOBAL ---
@@ -158,6 +159,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- SEGURIDAD: htmlescape helper ---
+def esc(text):
+    """Escape HTML entities to prevent XSS in user-rendered content."""
+    return html_module.escape(str(text)) if text else ""
+
+def validate_email(email):
+    pattern = r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, str(email).strip()))
+
+def validate_password(pw):
+    if len(pw) < 8:
+        return False, "Minimo 8 caracteres."
+    if not re.search(r'[A-Za-z]', pw):
+        return False, "Debe contener al menos una letra."
+    if not re.search(r'[0-9]', pw):
+        return False, "Debe contener al menos un numero."
+    return True, ""
+
 # --- CONEXIONES ---
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -173,25 +192,43 @@ def init_supabase():
 supabase = init_supabase()
 
 # --- SESION ---
-for k, v in {'user': None, 'tx_log': []}.items():
+for k, v in {'user': None, 'tx_log': [], 'login_attempts': 0, 'last_attempt': 0}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ==============================================================================
 # LOGIN - MULTIUSUARIO
 # ==============================================================================
+# --- GOOGLE OAUTH: Capturar callback ---
 query_params = st.query_params
 if "code" in query_params and not st.session_state['user']:
     try:
-        session = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
+        auth_code = str(query_params["code"])[:256]  # limitar longitud
+        session = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
         st.session_state['user'] = session.user
+        st.session_state['login_attempts'] = 0
         st.query_params.clear()
         st.rerun()
     except Exception:
-        pass
+        st.query_params.clear()
+        st.error("No se pudo completar el inicio de sesion con Google. Intentalo de nuevo.")
+
+# TOKEN-based session (Supabase access_token in URL fragment)
+if "access_token" in query_params and not st.session_state['user']:
+    try:
+        access_token = str(query_params["access_token"])[:2048]
+        refresh_token = str(query_params.get("refresh_token", ""))[:2048]
+        if access_token and refresh_token:
+            session = supabase.auth.set_session(access_token, refresh_token)
+            st.session_state['user'] = session.user
+            st.session_state['login_attempts'] = 0
+        st.query_params.clear()
+        st.rerun()
+    except Exception:
+        st.query_params.clear()
 
 if not st.session_state['user']:
-    st.markdown("<div style='height:8vh'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:6vh'></div>", unsafe_allow_html=True)
     _c1, _c2, _c3 = st.columns([1.2, 1.6, 1.2])
     with _c2:
         st.markdown("""
@@ -204,39 +241,73 @@ if not st.session_state['user']:
 
         tab_login, tab_signup = st.tabs(["Iniciar Sesion", "Crear Cuenta"])
         with tab_login:
-            if st.button("Entrar con Google", type="primary", use_container_width=True):
-                try:
-                    data = supabase.auth.sign_in_with_oauth({"provider": "google", "options": {"redirect_to": "https://carterapro.streamlit.app"}})
-                    st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Error: {e}")
-            st.markdown("<br>", unsafe_allow_html=True)
+            # --- Google OAuth ---
+            try:
+                redirect_url = st.secrets.get("REDIRECT_URL", "https://carterapro.streamlit.app")
+                oauth_response = supabase.auth.sign_in_with_oauth({
+                    "provider": "google",
+                    "options": {
+                        "redirect_to": redirect_url,
+                        "scopes": "openid email profile",
+                    }
+                })
+                google_url = oauth_response.url if oauth_response else None
+            except Exception:
+                google_url = None
+
+            if google_url:
+                st.link_button("🔑 Iniciar sesion con Google", google_url, use_container_width=True, type="primary")
+            else:
+                st.warning("Google Sign-In no disponible. Usa email y contrasena.")
+
+            st.markdown("<div style='text-align:center; padding:10px 0; color:var(--text-secondary);'>──── o ────</div>", unsafe_allow_html=True)
+
             with st.form("login_form"):
-                em = st.text_input("Email")
-                pa = st.text_input("Contrasena", type="password")
+                em = st.text_input("Email", autocomplete="email")
+                pa = st.text_input("Contrasena", type="password", autocomplete="current-password")
                 if st.form_submit_button("Entrar", use_container_width=True, type="primary"):
-                    try:
-                        res = supabase.auth.sign_in_with_password({"email": em, "password": pa})
-                        st.session_state['user'] = res.user
-                        st.rerun()
-                    except Exception:
-                        st.error("Credenciales incorrectas.")
-        with tab_signup:
-            with st.form("signup_form"):
-                em2 = st.text_input("Email")
-                pa2 = st.text_input("Contrasena", type="password")
-                pa3 = st.text_input("Confirmar contrasena", type="password")
-                if st.form_submit_button("Registrarse", use_container_width=True, type="primary"):
-                    if pa2 != pa3:
-                        st.error("Las contrasenas no coinciden.")
-                    elif len(pa2) < 6:
-                        st.error("Minimo 6 caracteres.")
+                    # Rate limiting
+                    now = time.time()
+                    if st.session_state['login_attempts'] >= 5 and (now - st.session_state['last_attempt']) < 60:
+                        st.error("Demasiados intentos. Espera 1 minuto.")
+                    elif not validate_email(em):
+                        st.error("Email no valido.")
+                    elif not pa:
+                        st.error("Introduce tu contrasena.")
                     else:
                         try:
-                            supabase.auth.sign_up({"email": em2, "password": pa2})
-                            st.success("Cuenta creada. Revisa tu email.")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                            res = supabase.auth.sign_in_with_password({"email": em.strip(), "password": pa})
+                            st.session_state['user'] = res.user
+                            st.session_state['login_attempts'] = 0
+                            st.rerun()
+                        except Exception:
+                            st.session_state['login_attempts'] += 1
+                            st.session_state['last_attempt'] = now
+                            remaining = 5 - st.session_state['login_attempts']
+                            if remaining > 0:
+                                st.error(f"Credenciales incorrectas. {remaining} intentos restantes.")
+                            else:
+                                st.error("Demasiados intentos fallidos. Espera 1 minuto.")
+        with tab_signup:
+            with st.form("signup_form"):
+                em2 = st.text_input("Email", autocomplete="email")
+                pa2 = st.text_input("Contrasena", type="password", autocomplete="new-password")
+                pa3 = st.text_input("Confirmar contrasena", type="password")
+                if st.form_submit_button("Registrarse", use_container_width=True, type="primary"):
+                    if not validate_email(em2):
+                        st.error("Email no valido.")
+                    elif pa2 != pa3:
+                        st.error("Las contrasenas no coinciden.")
+                    else:
+                        pw_ok, pw_msg = validate_password(pa2)
+                        if not pw_ok:
+                            st.error(pw_msg)
+                        else:
+                            try:
+                                supabase.auth.sign_up({"email": em2.strip(), "password": pa2})
+                                st.success("Cuenta creada. Revisa tu email para confirmar.")
+                            except Exception as e:
+                                st.error(f"Error al crear cuenta. Intentalo de nuevo.")
     st.stop()
 
 user = st.session_state['user']
@@ -246,7 +317,25 @@ user = st.session_state['user']
 # ==============================================================================
 
 def sanitize_input(text):
-    return re.sub(r'[^\w\s\-\.]', '', str(text)).strip().upper()
+    """Sanitize user input: allow only safe characters for ticker/asset search."""
+    if not text or not isinstance(text, str):
+        return ""
+    cleaned = re.sub(r'[^\w\s\-\.]', '', text).strip().upper()
+    return cleaned[:50]  # max length limit
+
+def sanitize_ticker(ticker):
+    """Strict ticker sanitization: only alphanumeric, dots, hyphens."""
+    if not ticker or not isinstance(ticker, str):
+        return ""
+    return re.sub(r'[^A-Za-z0-9\.\-\^]', '', ticker.strip().upper())[:20]
+
+def sanitize_number(val, min_val=0.0, max_val=1e12):
+    """Validate numeric inputs are within bounds."""
+    try:
+        n = float(val)
+        return max(min_val, min(max_val, n))
+    except (ValueError, TypeError):
+        return min_val
 
 def safe_metric_calc(price_series):
     clean = price_series.dropna()
@@ -446,6 +535,14 @@ def clear_cache():
 
 # --- DB FUNCTIONS ---
 def add_asset_db(t, n, s, p, pl):
+    t = sanitize_ticker(t)
+    n = esc(str(n)[:100])
+    s = sanitize_number(s, 0.0)
+    p = sanitize_number(p, 0.0)
+    pl = esc(str(pl)[:50])
+    if not t or s <= 0:
+        st.error("Datos de activo no validos.")
+        return
     try:
         supabase.table('assets').insert({
             "user_id": user.id, "ticker": t, "nombre": n,
@@ -457,22 +554,25 @@ def add_asset_db(t, n, s, p, pl):
         st.error(f"Error al guardar: {e}")
 
 def update_asset_db(asset_id, shares, avg_price):
+    shares = sanitize_number(shares, 0.0)
+    avg_price = sanitize_number(avg_price, 0.0)
     try:
-        supabase.table('assets').update({"shares": shares, "avg_price": avg_price}).eq('id', asset_id).execute()
+        supabase.table('assets').update({"shares": shares, "avg_price": avg_price}).eq('id', asset_id).eq('user_id', user.id).execute()
         clear_cache()
     except Exception as e:
         st.error(f"Error al actualizar: {e}")
 
 def delete_asset_db(id_del):
     try:
-        supabase.table('assets').delete().eq('id', id_del).execute()
+        supabase.table('assets').delete().eq('id', id_del).eq('user_id', user.id).execute()
         clear_cache()
     except Exception as e:
         st.error(f"Error al eliminar: {e}")
 
 def update_liquidity_balance(liq_id, new_amount):
+    new_amount = sanitize_number(new_amount, 0.0)
     try:
-        supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).execute()
+        supabase.table('liquidity').update({"amount": new_amount}).eq('id', liq_id).eq('user_id', user.id).execute()
         clear_cache()
     except Exception as e:
         st.error(f"Error liquidez: {e}")
@@ -527,13 +627,18 @@ with st.sidebar:
     if not nombre_user:
         nombre_user = (user.email or 'Inversor').split('@')[0].capitalize()
 
-    if avatar:
+    # XSS-safe display
+    safe_name = esc(nombre_user)
+    safe_avatar = esc(avatar) if avatar and avatar.startswith('https://') else ''
+
+    if safe_avatar:
         st.markdown(f"""
         <div style='display:flex; align-items:center; gap:10px; padding:12px; background:var(--bg-card);
                      border-radius:10px; border:1px solid var(--border); margin-bottom:16px;'>
-            <img src='{avatar}' style='width:36px; height:36px; border-radius:50%; border:2px solid var(--accent);'>
+            <img src='{safe_avatar}' style='width:36px; height:36px; border-radius:50%; border:2px solid var(--accent);'
+                 referrerpolicy='no-referrer'>
             <div style='line-height:1.2; overflow:hidden;'>
-                <b style='color:white; font-size:0.9rem;'>{nombre_user}</b><br>
+                <b style='color:white; font-size:0.9rem;'>{safe_name}</b><br>
                 <span style='font-size:0.7em; color:var(--accent);'>Online</span>
             </div>
         </div>""", unsafe_allow_html=True)
@@ -541,7 +646,7 @@ with st.sidebar:
         st.markdown(f"""
         <div style='padding:12px; background:var(--bg-card); border-radius:10px;
                      border:1px solid var(--border); margin-bottom:16px;'>
-            <b style='color:white;'>{nombre_user}</b><br>
+            <b style='color:white;'>{safe_name}</b><br>
             <span style='font-size:0.7em; color:var(--accent);'>Online</span>
         </div>""", unsafe_allow_html=True)
 
@@ -585,12 +690,26 @@ with st.sidebar:
 # ======================================================================
 if pagina == "Dashboard":
     st.markdown("## Dashboard")
-    st.markdown("""<div class='info-tip'>
-        <span class='tip-icon'>📖</span> <b>Tu panel de control financiero.</b>
-        Aqui ves un resumen completo de tu patrimonio: cuanto tienes, cuanto has ganado o perdido,
-        y como se comporta tu cartera comparada con el mercado. Los numeros en <b style='color:#00CC96'>verde</b> son positivos
-        y los numeros en <b style='color:#EF553B'>rojo</b> son negativos.
-    </div>""", unsafe_allow_html=True)
+    # Dynamic portfolio-aware intro
+    if df_final.empty:
+        dash_intro = """<div class='info-tip'>
+            <span class='tip-icon'>📖</span> <b>Tu panel de control financiero.</b>
+            Aun no tienes inversiones. Empieza anadiendo activos en la seccion <b>Inversiones</b>
+            y deposita liquidez en <b>Liquidez</b> para comenzar a construir tu cartera.
+        </div>"""
+    else:
+        n_activos = len(df_final)
+        best_asset = df_final.loc[df_final['Rentabilidad %'].idxmax()]
+        worst_asset = df_final.loc[df_final['Rentabilidad %'].idxmin()]
+        pct_liq_dash = (total_liquidez / patrimonio_total * 100) if patrimonio_total > 0 else 0
+        dash_intro = f"""<div class='info-tip'>
+            <span class='tip-icon'>📖</span> <b>Resumen de tu cartera en vivo.</b>
+            Tienes <b>{n_activos} inversiones</b> con un patrimonio total de <b>{patrimonio_total:,.0f}EUR</b>.
+            Tu mejor activo es <b>{esc(best_asset['Nombre'])}</b> ({best_asset['Rentabilidad %']:+.1f}%)
+            y el que peor va es <b>{esc(worst_asset['Nombre'])}</b> ({worst_asset['Rentabilidad %']:+.1f}%).
+            {'<b style="color:#FFA15A">Tu liquidez es solo el ' + f'{pct_liq_dash:.0f}%' + ' del patrimonio, considera mantener al menos un 10%.</b>' if 0 < pct_liq_dash < 10 else ''}
+        </div>"""
+    st.markdown(dash_intro, unsafe_allow_html=True)
 
     # Periodo
     periodos = {"1M": 30, "3M": 90, "6M": 180, "1A": 365, "2A": 730, "MAX": 9999}
@@ -676,16 +795,22 @@ if pagina == "Dashboard":
     m3.metric("Beta", f"{beta_portfolio:.2f}", help="Sensibilidad al mercado. Beta=1 se mueve igual que el mercado, <1 es mas tranquila, >1 es mas agresiva.")
     m4.metric("Sortino", f"{sortino:.2f}", help="Como Sharpe pero solo mide el riesgo de perdida. Mayor valor = mejor relacion ganancia/riesgo de caida.")
 
-    # Explicacion rapida de metricas
+    # Explicacion rapida de metricas - portfolio-aware
     with st.expander("ℹ️ ¿Que significan estos numeros?", expanded=False):
-        st.markdown("""
-        | Metrica | Que mide | Bueno | Regular | Malo |
-        |---------|----------|-------|---------|------|
-        | **Volatilidad** | Cuanto fluctua tu cartera | < 15% | 15-25% | > 25% |
-        | **Max Drawdown** | La peor caida historica | > -10% | -10% a -20% | < -20% |
-        | **Beta** | ¿Tu cartera se mueve mas o menos que el mercado? | 0.5-1.0 | 1.0-1.5 | > 1.5 |
-        | **Sharpe** | Rentabilidad ajustada al riesgo | > 1.0 | 0.5-1.0 | < 0.5 |
-        | **Sortino** | Como Sharpe, pero enfocado en caidas | > 1.5 | 0.7-1.5 | < 0.7 |
+        # Dynamic thresholds based on actual data
+        vol_status = "✅ Tranquila" if vol_anual < 15 else ("⚠️ Moderada" if vol_anual < 25 else "🚨 Alta")
+        dd_status = "✅ Contenida" if max_drawdown > -10 else ("⚠️ Normal" if max_drawdown > -20 else "🚨 Profunda")
+        beta_status = "✅ Defensiva" if beta_portfolio < 0.8 else ("✅ Neutral" if beta_portfolio < 1.2 else "⚠️ Agresiva")
+        sharpe_status = "✅ Bueno" if sharpe_ratio > 1 else ("⚠️ Mejorable" if sharpe_ratio > 0.5 else "🚨 Bajo")
+        sortino_status = "✅ Bueno" if sortino > 1.5 else ("⚠️ Mejorable" if sortino > 0.7 else "🚨 Bajo")
+        st.markdown(f"""
+        | Metrica | Tu valor | Estado | Que mide |
+        |---------|----------|--------|----------|
+        | **Volatilidad** | {vol_anual:.1f}% | {vol_status} | Cuanto fluctua tu cartera |
+        | **Max Drawdown** | {max_drawdown:.1f}% | {dd_status} | La peor caida historica |
+        | **Beta** | {beta_portfolio:.2f} | {beta_status} | Sensibilidad al mercado |
+        | **Sharpe** | {sharpe_ratio:.2f} | {sharpe_status} | Rentabilidad ajustada al riesgo |
+        | **Sortino** | {sortino:.2f} | {sortino_status} | Rentabilidad ajustada a caidas |
         """)
 
     st.markdown("---")
@@ -708,14 +833,16 @@ if pagina == "Dashboard":
                 port_cum = (1 + port_ret).cumprod() * 100
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=port_cum.index, y=port_cum, name="Tu Cartera",
-                                         line=dict(color='#00CC96', width=2.5),
-                                         fill='tozeroy', fillcolor='rgba(0,204,150,0.06)'))
+                                         line=dict(color='#00CC96', width=2.5, shape='spline'),
+                                         fill='tozeroy', fillcolor='rgba(0,204,150,0.06)',
+                                         hovertemplate='<b>Tu cartera</b><br>Fecha: %{x|%d %b %Y}<br>Valor: %{y:.1f}<extra></extra>'))
                 if not benchmark_data.empty:
                     bench_filt = benchmark_data[benchmark_data.index >= dt_start].copy()
                     if not bench_filt.empty:
                         bench_cum = (1 + bench_filt.pct_change().fillna(0)).cumprod() * 100
                         fig.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum, name="S&P 500",
-                                                  line=dict(color='#636EFA', dash='dot', width=1.5)))
+                                                  line=dict(color='#636EFA', dash='dot', width=1.8, shape='spline'),
+                                                  hovertemplate='<b>S&P 500</b><br>Fecha: %{x|%d %b %Y}<br>Valor: %{y:.1f}<extra></extra>'))
                 fig.add_hline(y=100, line_dash="dash", line_color="#555", line_width=1,
                               annotation_text="Punto de partida", annotation_font_color="#888", annotation_font_size=10)
                 fig.update_layout(template="plotly_dark", height=360, margin=dict(l=0, r=0, t=10, b=0),
@@ -739,20 +866,33 @@ if pagina == "Dashboard":
 
     with col_alloc:
         st.markdown("##### Distribucion")
-        st.markdown("""<div class='chart-explain'>
-            Muestra como esta repartido tu dinero. Idealmente <b>no deberias tener mas del 30-40%</b> en un solo activo.
-        </div>""", unsafe_allow_html=True)
+        # Dynamic allocation advice
+        if not df_final.empty and patrimonio_total > 0:
+            max_peso = df_final['Peso %'].max()
+            max_name = df_final.loc[df_final['Peso %'].idxmax(), 'Nombre']
+            if max_peso > 40:
+                alloc_msg = f"<b style='color:#EF553B'>⚠️ {esc(max_name)}</b> representa el <b>{max_peso:.0f}%</b> de tu cartera. Concentracion alta."
+            elif max_peso > 25:
+                alloc_msg = f"<b>{esc(max_name)}</b> es tu mayor posicion ({max_peso:.0f}%). Aceptable pero vigila."
+            else:
+                alloc_msg = f"Buena distribucion. Tu mayor posicion (<b>{esc(max_name)}</b>) es solo el {max_peso:.0f}%."
+        else:
+            alloc_msg = "Anade activos para ver la distribucion de tu cartera."
+        st.markdown(f"""<div class='chart-explain'>{alloc_msg}</div>""", unsafe_allow_html=True)
         if patrimonio_total > 0:
             labels_p = (['Cash'] + df_final['Nombre'].tolist()) if not df_final.empty else ['Cash']
             values_p = ([total_liquidez] + df_final['Valor Acciones'].tolist()) if not df_final.empty else [total_liquidez]
-            fig_pie = px.pie(names=labels_p, values=values_p, hole=0.7,
+            fig_pie = px.pie(names=labels_p, values=values_p, hole=0.72,
                               color_discrete_sequence=['#636EFA', '#00CC96', '#EF553B', '#AB63FA', '#FFA15A',
                                                        '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52'])
-            fig_pie.update_traces(textposition='inside', textinfo='percent', textfont_size=9)
-            fig_pie.update_layout(template="plotly_dark", height=340, showlegend=True,
-                                   margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor='rgba(0,0,0,0)',
-                                   legend=dict(font=dict(size=9)),
-                                   annotations=[dict(text=f"<b>{patrimonio_total:,.0f}EUR</b>", x=0.5, y=0.5,
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label', textfont_size=9,
+                                   pull=[0.02] * len(labels_p),
+                                   hovertemplate='<b>%{label}</b><br>Valor: %{value:,.0f} EUR<br>Peso: %{percent}<extra></extra>',
+                                   marker=dict(line=dict(color='#0a0e14', width=2)))
+            fig_pie.update_layout(template="plotly_dark", height=360, showlegend=True,
+                                   margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor='rgba(0,0,0,0)',
+                                   legend=dict(font=dict(size=9), orientation="h", y=-0.1),
+                                   annotations=[dict(text=f"<b>{patrimonio_total:,.0f}<br>EUR</b>", x=0.5, y=0.5,
                                                       font_size=14, font_color='white', showarrow=False)])
             st.plotly_chart(fig_pie, use_container_width=True)
         else:
@@ -769,9 +909,15 @@ if pagina == "Dashboard":
                 <b style='color:#00CC96'>Verde</b> = ganando dinero, <b style='color:#EF553B'>rojo</b> = perdiendo.
             </div>""", unsafe_allow_html=True)
             fig_tree = px.treemap(df_final, path=['Nombre'], values='Valor Acciones', color='Rentabilidad %',
-                                  color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], color_continuous_midpoint=0)
-            fig_tree.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=0, t=0, b=0),
-                                    paper_bgcolor='rgba(0,0,0,0)')
+                                  color_continuous_scale=['#EF553B', '#2d1f1f', '#1e1e1e', '#1f2d1f', '#00CC96'],
+                                  color_continuous_midpoint=0,
+                                  hover_data={'Valor Acciones': ':,.0f', 'Rentabilidad %': ':+.1f'})
+            fig_tree.update_traces(texttemplate='<b>%{label}</b><br>%{customdata[1]:+.1f}%',
+                                    textfont_size=11,
+                                    marker=dict(cornerradius=5))
+            fig_tree.update_layout(template="plotly_dark", height=320, margin=dict(l=5, r=5, t=5, b=5),
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    coloraxis_colorbar=dict(title="Rent.%", thickness=12, len=0.6))
             st.plotly_chart(fig_tree, use_container_width=True)
 
         with col_bar:
@@ -784,9 +930,14 @@ if pagina == "Dashboard":
             colors_b = ['#EF553B' if x < 0 else '#00CC96' for x in df_sorted['Ganancia']]
             fig_bar = go.Figure(go.Bar(
                 x=df_sorted['Ganancia'], y=df_sorted['Nombre'], orientation='h',
-                marker_color=colors_b, text=df_sorted['Ganancia'].apply(lambda x: f"{x:+,.0f}EUR"), textposition='outside'))
-            fig_bar.update_layout(template="plotly_dark", height=300, margin=dict(l=0, r=10, t=0, b=0),
-                                   paper_bgcolor='rgba(0,0,0,0)')
+                marker_color=colors_b,
+                marker_line=dict(color='rgba(255,255,255,0.08)', width=1),
+                text=df_sorted['Ganancia'].apply(lambda x: f"{x:+,.0f}EUR"), textposition='outside',
+                hovertemplate='<b>%{y}</b><br>P&L: %{x:+,.2f} EUR<extra></extra>'))
+            fig_bar.update_layout(template="plotly_dark", height=320, margin=dict(l=0, r=40, t=0, b=0),
+                                   paper_bgcolor='rgba(0,0,0,0)',
+                                   xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.04)', zeroline=True, zerolinecolor='rgba(255,255,255,0.15)'))
+            fig_bar.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
             st.plotly_chart(fig_bar, use_container_width=True)
 
     # Drawdown
@@ -802,7 +953,9 @@ if pagina == "Dashboard":
         dd_s = (cum_ret - cum_ret.cummax()) / cum_ret.cummax() * 100
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=dd_s.index, y=dd_s, fill='tozeroy',
-                                     fillcolor='rgba(239,85,59,0.15)', line=dict(color='#EF553B', width=1)))
+                                     fillcolor='rgba(239,85,59,0.12)', line=dict(color='#EF553B', width=1.2, shape='spline'),
+                                     hovertemplate='Fecha: %{x|%d %b %Y}<br>Caida: <b>%{y:.1f}%</b><extra></extra>',
+                                     name='Drawdown'))
         fig_dd.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=10, b=0),
                               paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Caida %", hovermode="x unified",
                               xaxis_title="Fecha")
@@ -820,6 +973,11 @@ if pagina == "Dashboard":
     if not df_final.empty:
         st.markdown("---")
         st.markdown("##### Posiciones")
+        st.markdown("""<div class='chart-explain'>
+            Tu lista completa de inversiones. <b>P.Medio</b> = precio al que compraste de media.
+            <b>P.Actual</b> = precio actual en el mercado. <b>P&L</b> = ganancia o perdida total.
+            <b>Peso%</b> = que porcentaje de tu cartera representa.
+        </div>""", unsafe_allow_html=True)
         cols_show = ['Nombre', 'ticker', 'platform', 'shares', 'avg_price', 'Precio Actual',
                       'Dinero Invertido', 'Valor Acciones', 'Ganancia', 'Rentabilidad %', 'Peso %']
         cols_avail = [c for c in cols_show if c in df_final.columns]
@@ -841,9 +999,27 @@ if pagina == "Dashboard":
 # ======================================================================
 elif pagina == "Mercado & Noticias":
     st.markdown("## Mercado & Noticias")
+    # Portfolio-aware market intro
+    if my_tickers:
+        mkt_intro = f"""<div class='info-tip'>
+            <span class='tip-icon'>🌍</span> <b>Pulso del mercado.</b>
+            Noticias filtradas para tus {len(my_tickers)} activos: <b>{', '.join(my_tickers[:5])}</b>{'...' if len(my_tickers) > 5 else ''}.
+            Los indices en <b style='color:#00CC96'>verde</b> suben y en <b style='color:#EF553B'>rojo</b> bajan.
+        </div>"""
+    else:
+        mkt_intro = """<div class='info-tip'>
+            <span class='tip-icon'>🌍</span> <b>Pulso del mercado.</b>
+            Aqui ves los principales indices bursatiles, noticias y activos populares.
+            Anade activos en <b>Inversiones</b> para ver noticias personalizadas.
+        </div>"""
+    st.markdown(mkt_intro, unsafe_allow_html=True)
 
     # --- Indices en tiempo real ---
     st.markdown("##### Indices Principales")
+    st.markdown("""<div class='chart-explain'>
+        Los <b>indices</b> son como termometros del mercado. Agrupan las mayores empresas de cada region.
+        Por ejemplo, el <b>S&P 500</b> incluye las 500 mayores empresas de EE.UU.
+    </div>""", unsafe_allow_html=True)
     indices_data = get_market_indices()
     if indices_data:
         idx_cols = st.columns(len(indices_data))
@@ -871,14 +1047,19 @@ elif pagina == "Mercado & Noticias":
         if news:
             # Top story
             top = news[0]
-            img_html = f"<img src='{top['image']}' onerror=\"this.style.display='none'\" />" if top.get('image') else ""
+            top_title = esc(top['title'])
+            top_source = esc(top['source'])
+            top_body = esc(top.get('body', ''))
+            top_url = esc(top['url']) if top.get('url', '').startswith('http') else '#'
+            top_date = esc(top['date'][:16]) if top.get('date') else ''
+            img_html = f"<img src='{esc(top['image'])}' onerror=\"this.style.display='none'\" />" if top.get('image', '').startswith('http') else ""
             st.markdown(f"""
             <div class='news-card-full' style='border-left: 3px solid var(--accent);'>
                 {img_html}
-                <span class='news-source-badge'>{top['source']}</span>
-                <div class='news-title'><a href="{top['url']}" target="_blank">{top['title']}</a></div>
-                <p style='color:var(--text-secondary); font-size:0.8rem; margin-top:6px;'>{top.get('body','')}</p>
-                <div class='news-meta'>{top['date'][:16] if top['date'] else ''}</div>
+                <span class='news-source-badge'>{top_source}</span>
+                <div class='news-title'><a href="{top_url}" target="_blank" rel="noopener noreferrer">{top_title}</a></div>
+                <p style='color:var(--text-secondary); font-size:0.8rem; margin-top:6px;'>{top_body}</p>
+                <div class='news-meta'>{top_date}</div>
             </div>""", unsafe_allow_html=True)
 
             # Grid de noticias
@@ -889,14 +1070,18 @@ elif pagina == "Mercado & Noticias":
                     idx2 = i + j
                     if idx2 < len(rest):
                         n = rest[idx2]
-                        img_h = f"<img src='{n['image']}' onerror=\"this.style.display='none'\" style='height:100px;'/>" if n.get('image') else ""
+                        n_title = esc(n['title'])
+                        n_source = esc(n['source'])
+                        n_url = esc(n['url']) if n.get('url', '').startswith('http') else '#'
+                        n_date = esc(n['date'][:16]) if n.get('date') else ''
+                        img_h = f"<img src='{esc(n['image'])}' onerror=\"this.style.display='none'\" style='height:100px;'/>" if n.get('image', '').startswith('http') else ""
                         with col:
                             st.markdown(f"""
                             <div class='news-card-full'>
                                 {img_h}
-                                <span class='news-source-badge'>{n['source']}</span>
-                                <div class='news-title'><a href="{n['url']}" target="_blank">{n['title']}</a></div>
-                                <div class='news-meta'>{n['date'][:16] if n['date'] else ''}</div>
+                                <span class='news-source-badge'>{n_source}</span>
+                                <div class='news-title'><a href="{n_url}" target="_blank" rel="noopener noreferrer">{n_title}</a></div>
+                                <div class='news-meta'>{n_date}</div>
                             </div>""", unsafe_allow_html=True)
         else:
             st.info("No se encontraron noticias. Pulsa Actualizar.")
@@ -1048,8 +1233,19 @@ elif pagina == "Inversiones":
 # ======================================================================
 elif pagina == "Liquidez":
     st.markdown("## Liquidez")
-
     pct_liq = (total_liquidez / patrimonio_total * 100) if patrimonio_total > 0 else 100
+    # Portfolio-aware liquidez advice
+    if pct_liq >= 20:
+        liq_advice = f"Tienes <b>{pct_liq:.0f}%</b> en efectivo. Es un colchon generoso. Podrias considerar invertir parte si tienes buenas oportunidades."
+    elif pct_liq >= 10:
+        liq_advice = f"Tienes <b>{pct_liq:.0f}%</b> en efectivo. Nivel saludable dentro del rango recomendado (10-20%)."
+    elif pct_liq >= 5:
+        liq_advice = f"Tu liquidez es del <b style='color:#FFA15A'>{pct_liq:.0f}%</b>. Por debajo del 10% recomendado. Considera reforzar tu colchon."
+    else:
+        liq_advice = f"<b style='color:#EF553B'>Atencion</b>: solo tienes un <b>{pct_liq:.0f}%</b> en efectivo. Muy por debajo del minimo recomendado."
+    st.markdown(f"""<div class='info-tip'>
+        <span class='tip-icon'>💰</span> <b>Tu efectivo disponible.</b> {liq_advice}
+    </div>""", unsafe_allow_html=True)
     color_liq = "#00CC96" if pct_liq >= 10 else ("#FFA15A" if pct_liq >= 5 else "#EF553B")
     st.markdown(f"""
     <div style="text-align:center; padding: 30px; background: var(--bg-card); border-radius: 14px;
@@ -1099,12 +1295,27 @@ elif pagina == "Liquidez":
 # ======================================================================
 elif pagina == "Rebalanceo":
     st.markdown("## Rebalanceo Inteligente")
-    st.markdown("""<div class='info-tip'>
-        <span class='tip-icon'>⚖️</span> <b>¿Que es rebalancear?</b>
-        Con el tiempo, algunos activos suben y otros bajan, cambiando los porcentajes de tu cartera.
-        Rebalancear significa <b>comprar mas de los activos que se han quedado por debajo</b> de tu objetivo
-        para volver a tener la distribucion que deseas. Aqui <b>nunca se vende</b>, solo se compra mas.
-    </div>""", unsafe_allow_html=True)
+    # Portfolio-aware intro
+    if df_final.empty:
+        reb_intro = """<div class='info-tip'>
+            <span class='tip-icon'>⚖️</span> <b>Rebalanceo.</b>
+            Anade activos primero para poder rebalancear tu cartera.
+        </div>"""
+    else:
+        wts = df_final['Peso %'].tolist()
+        max_diff = max(wts) - min(wts) if len(wts) > 1 else 0
+        if max_diff > 30:
+            reb_advice = "Tu cartera esta <b>muy desbalanceada</b>. Rebalancear ahora reducira el riesgo."
+        elif max_diff > 15:
+            reb_advice = "Hay diferencias notables entre pesos. Buen momento para ajustar."
+        else:
+            reb_advice = "Tu cartera esta <b>relativamente equilibrada</b>. Aun asi, revisa si los pesos coinciden con tu estrategia."
+        reb_intro = f"""<div class='info-tip'>
+            <span class='tip-icon'>⚖️</span> <b>¿Que es rebalancear?</b>
+            {reb_advice}
+            Aqui solo se <b>compra mas</b> de lo infraponderado, nunca se vende.
+        </div>"""
+    st.markdown(reb_intro, unsafe_allow_html=True)
 
     if df_final.empty:
         st.warning("Anade activos primero.")
@@ -1166,12 +1377,18 @@ elif pagina == "Rebalanceo":
 
                         # Grafico
                         fig_reb = go.Figure()
-                        fig_reb.add_trace(go.Bar(name='Actual', x=df_reb['Activo'], y=df_reb['Actual %'],
-                                                  marker_color='#636EFA'))
+                        fig_reb.add_trace(go.Bar(name='Peso Actual', x=df_reb['Activo'], y=df_reb['Actual %'],
+                                                  marker_color='#636EFA',
+                                                  marker_line=dict(color='rgba(255,255,255,0.1)', width=1),
+                                                  hovertemplate='<b>%{x}</b><br>Actual: %{y:.1f}%<extra></extra>'))
                         fig_reb.add_trace(go.Bar(name='Tras Rebalanceo', x=df_reb['Activo'], y=df_reb['Nuevo %'],
-                                                  marker_color='#00CC96'))
-                        fig_reb.update_layout(template="plotly_dark", barmode='group', height=300,
-                                               paper_bgcolor='rgba(0,0,0,0)', yaxis_title="%")
+                                                  marker_color='#00CC96',
+                                                  marker_line=dict(color='rgba(255,255,255,0.1)', width=1),
+                                                  hovertemplate='<b>%{x}</b><br>Nuevo: %{y:.1f}%<extra></extra>'))
+                        fig_reb.update_layout(template="plotly_dark", barmode='group', height=320,
+                                               paper_bgcolor='rgba(0,0,0,0)', yaxis_title="%",
+                                               legend=dict(orientation="h", y=1.1))
+                        fig_reb.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
                         st.plotly_chart(fig_reb, use_container_width=True)
 
                         # Resumen
@@ -1343,19 +1560,58 @@ elif pagina == "Rebalanceo":
 # ======================================================================
 elif pagina == "Radiografia":
     st.markdown("## Radiografia de Cartera")
-    st.markdown("""<div class='info-tip'>
-        <span class='tip-icon'>🔬</span> <b>Analisis profundo de tu cartera.</b>
-        Aqui puedes ver si tu cartera esta bien diversificada, en que sectores inviertes,
-        como se relacionan tus activos entre si, y los detalles de cada inversion.
-    </div>""", unsafe_allow_html=True)
-
     if df_final.empty:
+        st.markdown("""<div class='info-tip'>
+            <span class='tip-icon'>🔬</span> <b>Analisis profundo de tu cartera.</b>
+            Anade activos en la seccion <b>Inversiones</b> para ver el analisis completo.
+        </div>""", unsafe_allow_html=True)
         st.warning("Anade activos.")
     else:
         weights = (df_final['Peso %'] / 100).tolist()
         div = diversification_score(weights)
+        n_a = len(df_final)
+        max_w = df_final['Peso %'].max()
+        max_w_name = df_final.loc[df_final['Peso %'].idxmax(), 'Nombre']
+
+        # Portfolio-aware intro
+        if div >= 80:
+            radio_msg = f"Tu cartera tiene {n_a} activos bien repartidos. Diversificacion excelente."
+        elif div >= 50:
+            radio_msg = f"Tienes {n_a} activos pero <b>{esc(max_w_name)}</b> pesa un {max_w:.0f}%. Podrías distribuir mejor."
+        else:
+            radio_msg = f"Cartera concentrada: <b>{esc(max_w_name)}</b> representa el {max_w:.0f}% del total. Considera diversificar."
+
+        st.markdown(f"""<div class='info-tip'>
+            <span class='tip-icon'>🔬</span> <b>Analisis profundo de tu cartera.</b> {radio_msg}
+        </div>""", unsafe_allow_html=True)
+
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Diversificacion", f"{div:.0f}/100", help="Mide lo bien repartido que esta tu dinero. 100 = perfectamente diversificado.")
+
+        # Gauge chart for diversification
+        with c1:
+            gauge_color = '#00CC96' if div >= 70 else ('#FFA15A' if div >= 40 else '#EF553B')
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=div,
+                title={'text': "Diversificacion", 'font': {'size': 13, 'color': '#EAEAEA'}},
+                number={'suffix': '/100', 'font': {'size': 22, 'color': 'white'}},
+                gauge={
+                    'axis': {'range': [0, 100], 'tickwidth': 0, 'tickcolor': 'rgba(0,0,0,0)',
+                             'dtick': 25, 'tickfont': {'size': 9, 'color': '#555'}},
+                    'bar': {'color': gauge_color, 'thickness': 0.75},
+                    'bgcolor': 'rgba(26,31,41,0.8)',
+                    'borderwidth': 0,
+                    'steps': [
+                        {'range': [0, 40], 'color': 'rgba(239,85,59,0.12)'},
+                        {'range': [40, 70], 'color': 'rgba(255,161,90,0.12)'},
+                        {'range': [70, 100], 'color': 'rgba(0,204,150,0.12)'},
+                    ],
+                }
+            ))
+            fig_gauge.update_layout(height=160, margin=dict(l=20, r=20, t=35, b=10),
+                                     paper_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+
         c2.metric("Activos", len(df_final), help="Numero total de inversiones diferentes.")
         c3.metric("Mayor peso", f"{df_final['Peso %'].max():.1f}%", help="Tu activo mas grande. Idealmente < 30%.")
         c4.metric("Invertido", f"{df_final['Dinero Invertido'].sum():,.2f}EUR", help="Dinero total que has puesto en inversiones.")
@@ -1384,18 +1640,38 @@ elif pagina == "Radiografia":
                 if len(valid_c) > 1:
                     corr = history_data[valid_c].pct_change().dropna().corr()
                     fig_c = px.imshow(corr, text_auto='.2f',
-                                      color_continuous_scale=['#EF553B', '#1e1e1e', '#00CC96'], aspect='equal')
-                    fig_c.update_layout(template="plotly_dark", height=420, paper_bgcolor='rgba(0,0,0,0)',
-                                         margin=dict(l=0, r=0, t=10, b=0))
+                                      color_continuous_scale=['#EF553B', '#3d1f1f', '#1e1e1e', '#1f3d2f', '#00CC96'],
+                                      aspect='equal', zmin=-1, zmax=1)
+                    fig_c.update_layout(template="plotly_dark", height=max(350, len(valid_c) * 55),
+                                         paper_bgcolor='rgba(0,0,0,0)',
+                                         margin=dict(l=10, r=10, t=10, b=10),
+                                         coloraxis_colorbar=dict(title="Corr", thickness=12, len=0.7))
+                    fig_c.update_traces(textfont=dict(size=11, color='white'))
                     st.plotly_chart(fig_c, use_container_width=True)
 
+                    # Dynamic portfolio-aware correlation analysis
                     high_c = [(corr.columns[i], corr.columns[j], corr.iloc[i, j])
                               for i in range(len(corr)) for j in range(i + 1, len(corr))
                               if abs(corr.iloc[i, j]) > 0.8]
+                    low_c = [(corr.columns[i], corr.columns[j], corr.iloc[i, j])
+                              for i in range(len(corr)) for j in range(i + 1, len(corr))
+                              if corr.iloc[i, j] < 0.2]
+                    avg_corr = corr.values[np.triu_indices_from(corr.values, 1)].mean() if len(valid_c) > 1 else 0
+
+                    corr_summary = f"""<div class='chart-explain'>
+                        <b>Correlacion media de tu cartera: {avg_corr:.2f}</b>.
+                        {'Tus activos estan bastante correlacionados (se mueven juntos). Anaadir activos de sectores diferentes ayudaria.' if avg_corr > 0.7 else
+                         'Buena descorrelacion entre activos.' if avg_corr < 0.4 else
+                         'Correlacion moderada. Hay margen para diversificar mas.'}
+                    </div>"""
+                    st.markdown(corr_summary, unsafe_allow_html=True)
+
                     if high_c:
-                        st.warning("Pares muy correlacionados (>0.8):")
-                        for a_t, b_t, v in high_c:
+                        st.warning(f"Pares muy correlacionados (>0.8): {len(high_c)} encontrados")
+                        for a_t, b_t, v in high_c[:5]:
                             st.write(f"- {a_t} <-> {b_t}: **{v:.2f}**")
+                    if low_c:
+                        st.success(f"Buenas combinaciones (<0.2): {', '.join([f'{a}-{b}' for a, b, v in low_c[:3]])}")
                 else:
                     st.info("Necesitas 2+ activos.")
             else:
@@ -1421,14 +1697,24 @@ elif pagina == "Radiografia":
                 with cs1:
                     fig_s = px.bar(df_sec, x='Sector', y='Valor', color='Sector',
                                     text=df_sec['%'].apply(lambda x: f"{x:.1f}%"),
-                                    color_discrete_sequence=px.colors.qualitative.Set3)
-                    fig_s.update_layout(template="plotly_dark", height=320, showlegend=False,
-                                         paper_bgcolor='rgba(0,0,0,0)')
+                                    color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig_s.update_traces(textposition='outside', textfont_size=10,
+                                         marker_line=dict(color='rgba(255,255,255,0.08)', width=1),
+                                         hovertemplate='<b>%{x}</b><br>Valor: %{y:,.0f} EUR<extra></extra>')
+                    fig_s.update_layout(template="plotly_dark", height=340, showlegend=False,
+                                         paper_bgcolor='rgba(0,0,0,0)',
+                                         xaxis=dict(tickangle=45),
+                                         yaxis_title="Valor (EUR)")
+                    fig_s.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
                     st.plotly_chart(fig_s, use_container_width=True)
                 with cs2:
-                    fig_sp = px.pie(df_sec, names='Sector', values='Valor', hole=0.5,
-                                     color_discrete_sequence=px.colors.qualitative.Set3)
-                    fig_sp.update_layout(template="plotly_dark", height=320, paper_bgcolor='rgba(0,0,0,0)')
+                    fig_sp = px.pie(df_sec, names='Sector', values='Valor', hole=0.55,
+                                     color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig_sp.update_traces(textposition='inside', textinfo='percent+label', textfont_size=9,
+                                          marker=dict(line=dict(color='#0a0e14', width=1.5)),
+                                          hovertemplate='<b>%{label}</b><br>Valor: %{value:,.0f} EUR<br>%{percent}<extra></extra>')
+                    fig_sp.update_layout(template="plotly_dark", height=340, paper_bgcolor='rgba(0,0,0,0)',
+                                          showlegend=False)
                     st.plotly_chart(fig_sp, use_container_width=True)
 
         with tab_brok:
@@ -1443,13 +1729,23 @@ elif pagina == "Radiografia":
                 bk.columns = ['Broker', 'Valor', 'Activos', 'P&L']
                 cb1, cb2 = st.columns(2)
                 with cb1:
-                    fig_bk = px.pie(bk, names='Broker', values='Valor', hole=0.5)
-                    fig_bk.update_layout(template="plotly_dark", height=320, paper_bgcolor='rgba(0,0,0,0)')
+                    fig_bk = px.pie(bk, names='Broker', values='Valor', hole=0.55,
+                                     color_discrete_sequence=['#636EFA', '#00CC96', '#EF553B', '#AB63FA', '#FFA15A', '#19D3F3'])
+                    fig_bk.update_traces(textposition='inside', textinfo='percent+label', textfont_size=10,
+                                          marker=dict(line=dict(color='#0a0e14', width=1.5)),
+                                          hovertemplate='<b>%{label}</b><br>Valor: %{value:,.0f} EUR<extra></extra>')
+                    fig_bk.update_layout(template="plotly_dark", height=340, paper_bgcolor='rgba(0,0,0,0)',
+                                          showlegend=False)
                     st.plotly_chart(fig_bk, use_container_width=True)
                 with cb2:
                     st.dataframe(bk.style.format({'Valor': '{:,.2f}EUR', 'P&L': '{:+,.2f}EUR'}), use_container_width=True)
 
         with tab_det:
+            st.markdown("""<div class='chart-explain'>
+                Selecciona un activo para ver sus datos fundamentales, el grafico de precio historico
+                y tu precio medio de compra (linea naranja punteada). Si el precio actual esta <b>por encima</b>
+                de tu precio medio, estas ganando en esa inversion.
+            </div>""", unsafe_allow_html=True)
             sel_a = st.selectbox("Activo:", df_final['Nombre'].tolist(), key="xray_det")
             if sel_a:
                 row_s = df_final[df_final['Nombre'] == sel_a].iloc[0]
@@ -1461,11 +1757,22 @@ elif pagina == "Radiografia":
                     if info_s:
                         for label_i, key_i in [("Sector", "sector"), ("Industria", "industry"), ("Pais", "country")]:
                             st.write(f"**{label_i}:** {info_s.get(key_i, 'N/A')}")
-                        st.write(f"**P/E:** {info_s.get('pe_ratio', 0):.2f} - **Beta:** {info_s.get('beta', 0):.2f}")
-                        st.write(f"**Dividendo:** {info_s.get('dividend_yield', 0) * 100:.2f}%")
+                        pe = info_s.get('pe_ratio', 0)
+                        beta_s = info_s.get('beta', 0)
+                        div_y = info_s.get('dividend_yield', 0) * 100
+                        st.write(f"**P/E:** {pe:.2f} - **Beta:** {beta_s:.2f}")
+                        st.write(f"**Dividendo:** {div_y:.2f}%")
                         mc = info_s.get('market_cap', 0)
                         if mc > 1e12: st.write(f"**Market Cap:** {mc/1e12:.2f}T")
                         elif mc > 1e9: st.write(f"**Market Cap:** {mc/1e9:.2f}B")
+                        # Explicaciones de metricas
+                        with st.expander("ℹ️ ¿Que significan estas metricas?"):
+                            st.markdown(f"""
+                            - **P/E (Price-to-Earnings):** Cuantos anos de beneficios tardarias en recuperar lo invertido. P/E de {pe:.0f} significa que por cada EUR 1 de beneficio, pagas {pe:.0f} EUR. Un P/E < 15 es "barato", > 25 es "caro".
+                            - **Beta:** Si el mercado sube un 1%, este activo sube aprox. un {beta_s:.1f}%. Beta > 1 = mas arriesgado que el mercado.
+                            - **Dividendo:** Reparte un {div_y:.2f}% anual en pagos. Es como un "interes" que recibes por mantener la accion.
+                            - **Market Cap:** Tamano de la empresa. Mega (>100B), Large (>10B), Mid (>2B), Small (<2B).
+                            """)
                 with cd2:
                     st.metric("Valor", f"{row_s['Valor Acciones']:,.2f}EUR")
                     st.metric("P&L", f"{row_s['Ganancia']:+,.2f}EUR", f"{row_s['Rentabilidad %']:+.2f}%")
@@ -1474,12 +1781,28 @@ elif pagina == "Radiografia":
                     h_a = history_data[tk_s].dropna()
                     if not h_a.empty:
                         fig_i = go.Figure()
-                        fig_i.add_trace(go.Scatter(x=h_a.index, y=h_a, line=dict(color='#00CC96', width=2),
-                                                    fill='tozeroy', fillcolor='rgba(0,204,150,0.05)', name=tk_s))
+                        fig_i.add_trace(go.Scatter(x=h_a.index, y=h_a, line=dict(color='#00CC96', width=2, shape='spline'),
+                                                    fill='tozeroy', fillcolor='rgba(0,204,150,0.05)', name=tk_s,
+                                                    hovertemplate='%{x|%d %b %Y}<br><b>%{y:,.2f}</b><extra></extra>'))
                         fig_i.add_hline(y=row_s['avg_price'], line_dash="dash", line_color="#FFA15A",
-                                         annotation_text=f"P.Medio: {row_s['avg_price']:.2f}")
-                        fig_i.update_layout(template="plotly_dark", height=280, paper_bgcolor='rgba(0,0,0,0)',
-                                             margin=dict(l=0, r=0, t=10, b=0), hovermode="x unified")
+                                         annotation_text=f"Tu precio de compra: {row_s['avg_price']:.2f}",
+                                         annotation_font_color="#FFA15A", annotation_font_size=11)
+                        # Add 52-week high/low annotations
+                        if info_s:
+                            hi52 = info_s.get('fifty_two_week_high', 0)
+                            lo52 = info_s.get('fifty_two_week_low', 0)
+                            if hi52 > 0:
+                                fig_i.add_hline(y=hi52, line_dash="dot", line_color="rgba(0,204,150,0.3)", line_width=0.8,
+                                                 annotation_text=f"Max 52s: {hi52:.2f}", annotation_font_color="#555", annotation_font_size=9)
+                            if lo52 > 0:
+                                fig_i.add_hline(y=lo52, line_dash="dot", line_color="rgba(239,85,59,0.3)", line_width=0.8,
+                                                 annotation_text=f"Min 52s: {lo52:.2f}", annotation_font_color="#555", annotation_font_size=9,
+                                                 annotation_position="bottom right")
+                        fig_i.update_layout(template="plotly_dark", height=300, paper_bgcolor='rgba(0,0,0,0)',
+                                             margin=dict(l=0, r=0, t=10, b=0), hovermode="x unified",
+                                             yaxis_title="Precio", xaxis_title="Fecha")
+                        fig_i.update_yaxes(gridcolor='rgba(255,255,255,0.04)')
+                        fig_i.update_xaxes(gridcolor='rgba(255,255,255,0.04)')
                         st.plotly_chart(fig_i, use_container_width=True)
 
 # ======================================================================
@@ -1487,12 +1810,26 @@ elif pagina == "Radiografia":
 # ======================================================================
 elif pagina == "Simulador":
     st.markdown("## Simulador Monte Carlo")
-    st.markdown("""<div class='info-tip'>
-        <span class='tip-icon'>🎲</span> <b>¿Cuanto podria valer tu cartera en el futuro?</b>
-        Este simulador genera miles de escenarios posibles basados en como se ha comportado tu cartera hasta ahora.
-        No predice el futuro, pero te da una idea del <b>rango de resultados probables</b>.
-        Piensa en ello como: "si la historia se repitiera de muchas formas, ¿donde podria acabar mi dinero?".
-    </div>""", unsafe_allow_html=True)
+    # Compute portfolio volatility for intro
+    vol_anual = None
+    if not history_data.empty:
+        _d = history_data.pct_change().dropna()
+        if len(_d) > 20:
+            vol_anual = float(np.clip(_d.mean(axis=1).std() * np.sqrt(252), 0.05, 0.8) * 100)
+    # Portfolio-aware intro
+    if total_inversiones > 0:
+        vol_text = f" ({vol_anual:.1f}% anual)" if vol_anual else ""
+        sim_intro = f"""<div class='info-tip'>
+            <span class='tip-icon'>🎲</span> <b>¿Cuanto podria valer tu cartera de {total_inversiones:,.0f}EUR en el futuro?</b>
+            Basandonos en la volatilidad real de tu cartera{vol_text}, simulamos miles de escenarios.
+            Cuanto mas tiempo y mas simulaciones, mas fiable es la proyeccion.
+        </div>"""
+    else:
+        sim_intro = """<div class='info-tip'>
+            <span class='tip-icon'>🎲</span> <b>Simulador de futuro.</b>
+            Genera miles de escenarios posibles. Anade activos primero para usar datos reales de tu cartera.
+        </div>"""
+    st.markdown(sim_intro, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1534,14 +1871,21 @@ elif pagina == "Simulador":
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=np.concatenate([x, x[::-1]]), y=np.concatenate([p90, p10[::-1]]),
                                   fill='toself', fillcolor='rgba(0,204,150,0.08)',
-                                  line=dict(color='rgba(0,0,0,0)'), name='P10-P90'))
+                                  line=dict(color='rgba(0,0,0,0)'), name='Rango amplio (80%)',
+                                  hoverinfo='skip'))
         fig.add_trace(go.Scatter(x=np.concatenate([x, x[::-1]]), y=np.concatenate([p75, p25[::-1]]),
                                   fill='toself', fillcolor='rgba(0,204,150,0.15)',
-                                  line=dict(color='rgba(0,0,0,0)'), name='P25-P75'))
-        fig.add_trace(go.Scatter(x=x, y=p50, line=dict(color='#00CC96', width=3), name='Mediana'))
+                                  line=dict(color='rgba(0,0,0,0)'), name='Rango probable (50%)',
+                                  hoverinfo='skip'))
+        fig.add_trace(go.Scatter(x=x, y=p50, line=dict(color='#00CC96', width=3, shape='spline'), name='Resultado mas probable',
+                                  hovertemplate='Ano %{x:.1f}<br><b>%{y:,.0f} EUR</b><extra></extra>'))
+        # Capital aportado line
+        capital_line = np.array([cap + aport * 12 * t for t in x])
+        fig.add_trace(go.Scatter(x=x, y=capital_line, line=dict(color='#FFA15A', width=1.5, dash='dot'),
+                                  name='Capital aportado', hovertemplate='Ano %{x:.1f}<br>Aportado: %{y:,.0f} EUR<extra></extra>'))
         for si in np.random.choice(n_sims, min(15, n_sims), replace=False):
             fig.add_trace(go.Scatter(x=x, y=paths[si], line=dict(color='rgba(255,255,255,0.03)', width=0.5),
-                                      showlegend=False))
+                                      showlegend=False, hoverinfo='skip'))
         fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', height=420,
                            xaxis_title="Anos en el futuro", yaxis_title="Valor en EUR", hovermode="x unified",
                            margin=dict(l=0, r=0, t=10, b=0))
@@ -1579,6 +1923,11 @@ elif pagina == "Simulador":
 # ======================================================================
 elif pagina == "Historial":
     st.markdown("## Historial de Operaciones")
+    st.markdown("""<div class='info-tip'>
+        <span class='tip-icon'>📝</span> <b>Registro de todas tus operaciones.</b>
+        Cada compra, venta, ingreso o retiro queda registrado aqui. Puedes filtrar por tipo
+        y exportar a CSV para tu contabilidad.
+    </div>""", unsafe_allow_html=True)
 
     if st.session_state['tx_log']:
         df_tx = pd.DataFrame(st.session_state['tx_log']).sort_values('fecha', ascending=False)
