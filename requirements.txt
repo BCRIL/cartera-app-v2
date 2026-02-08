@@ -4,10 +4,6 @@ yfinance
 yahooquery
 supabase
 plotly
-matplotlib
-seaborn
-textblob
 numpy
-scipy
 duckduckgo_search
 openai
