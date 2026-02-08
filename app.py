@@ -13,7 +13,24 @@ import html as html_module
 from duckduckgo_search import DDGS
 
 # --- CONFIGURACION GLOBAL ---
-st.set_page_config(page_title="Carterapro", layout="wide", page_icon="", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Carterapro — Gestor Patrimonial Gratis", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
+
+# --- SEO: Meta tags para redes sociales (Open Graph + Twitter Cards) ---
+APP_URL = "https://carterapro.streamlit.app"  # Cambia a tu URL real
+st.markdown(f"""
+<head>
+    <meta name="description" content="Gestiona tu cartera de inversiones gratis. Dashboard en tiempo real, rebalanceo inteligente, simulador Monte Carlo y mas. Sin comisiones, sin trucos.">
+    <meta name="keywords" content="gestor cartera, inversiones, portfolio tracker, rebalanceo, Monte Carlo, acciones, ETF, gratis, finanzas personales">
+    <meta property="og:title" content="Carterapro — Gestor Patrimonial Inteligente y Gratuito">
+    <meta property="og:description" content="Controla tus inversiones en tiempo real. Dashboard profesional, rebalanceo automatico, simulador Monte Carlo, analisis de cartera y mas. 100% gratis.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{APP_URL}">
+    <meta property="og:image" content="{APP_URL}/~/+/static/media/icon.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Carterapro — Gestor Patrimonial Gratuito">
+    <meta name="twitter:description" content="Dashboard de inversiones en tiempo real, rebalanceo inteligente, simulador Monte Carlo. 100% gratis.">
+</head>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
 # DISENO
@@ -676,6 +693,34 @@ with st.sidebar:
     ], label_visibility="collapsed")
 
     st.markdown("<div style='flex:1'></div>", unsafe_allow_html=True)
+
+    # --- Seccion de compartir / invitar ---
+    st.divider()
+    share_text = "Gestiona tu cartera de inversiones gratis con Carterapro: dashboard en tiempo real, rebalanceo, simulador Monte Carlo y mas."
+    share_url = APP_URL
+    st.markdown("<p style='font-size:0.75rem; color:var(--text-secondary)!important; margin-bottom:6px;'>📢 <b style='color:var(--text-primary)!important;'>Comparte Carterapro</b></p>", unsafe_allow_html=True)
+
+    share_cols = st.columns(4)
+    with share_cols[0]:
+        tw_url = f"https://twitter.com/intent/tweet?text={share_text}&url={share_url}"
+        st.markdown(f"<a href='{tw_url}' target='_blank' style='text-decoration:none;'><div style='text-align:center; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 4px; font-size:0.7rem; color:var(--text-primary)!important; cursor:pointer; transition:all 0.2s;'>🐦<br>Twitter</div></a>", unsafe_allow_html=True)
+    with share_cols[1]:
+        wa_url = f"https://wa.me/?text={share_text}%20{share_url}"
+        st.markdown(f"<a href='{wa_url}' target='_blank' style='text-decoration:none;'><div style='text-align:center; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 4px; font-size:0.7rem; color:var(--text-primary)!important; cursor:pointer;'>💬<br>WhatsApp</div></a>", unsafe_allow_html=True)
+    with share_cols[2]:
+        li_url = f"https://www.linkedin.com/sharing/share-offsite/?url={share_url}"
+        st.markdown(f"<a href='{li_url}' target='_blank' style='text-decoration:none;'><div style='text-align:center; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 4px; font-size:0.7rem; color:var(--text-primary)!important; cursor:pointer;'>💼<br>LinkedIn</div></a>", unsafe_allow_html=True)
+    with share_cols[3]:
+        tg_url = f"https://t.me/share/url?url={share_url}&text={share_text}"
+        st.markdown(f"<a href='{tg_url}' target='_blank' style='text-decoration:none;'><div style='text-align:center; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px 4px; font-size:0.7rem; color:var(--text-primary)!important; cursor:pointer;'>✈️<br>Telegram</div></a>", unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style='margin-top:8px; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border);
+                 border-radius:8px; font-size:0.65rem; color:var(--text-secondary)!important; text-align:center;'>
+        Copia el enlace: <b style='color:var(--accent)!important; user-select:all;'>{share_url}</b>
+    </div>""", unsafe_allow_html=True)
+
+    st.divider()
     if st.button("Cerrar Sesion", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state['user'] = None

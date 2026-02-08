@@ -1,6 +1,27 @@
-# 🏦 Carterapro Ultra — Gestor Patrimonial Inteligente
+# 📊 Carterapro — Gestor Patrimonial Inteligente y Gratuito
 
-Aplicación web de gestión patrimonial construida con **Streamlit**, **Supabase** y **yfinance**.
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://carterapro.streamlit.app)
+[![Made with Streamlit](https://img.shields.io/badge/Made%20with-Streamlit-ff4b4b.svg)](https://streamlit.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> **Controla tus inversiones en tiempo real. 100% gratis, sin comisiones, sin trucos.**
+
+Aplicación web profesional de gestión patrimonial construida con **Streamlit**, **Supabase** y **yfinance**. Diseñada para inversores que quieren tener el control total de su cartera sin pagar por herramientas caras.
+
+🔗 **[Accede gratis → carterapro.streamlit.app](https://carterapro.streamlit.app)**
+
+---
+
+## ¿Por qué Carterapro?
+
+| Característica | Carterapro | Apps de pago |
+|---|---|---|
+| Dashboard en tiempo real | ✅ Gratis | 💰 10-30€/mes |
+| Rebalanceo inteligente | ✅ Solo comprando | 💰 Premium |
+| Simulador Monte Carlo | ✅ Incluido | ❌ Raro |
+| Multi-broker | ✅ 7 brokers | 💰 Extra |
+| Sin publicidad | ✅ | ❌ |
+| Open Source | ✅ | ❌ |
 
 ## Funcionalidades
 
@@ -86,3 +107,19 @@ GROQ_API_KEY = "tu_groq_key"  # Opcional, para Asesor AI
 ```bash
 streamlit run app.py
 ```
+
+---
+
+## 🌐 Compartir
+
+Si te gusta Carterapro, ayúdanos a crecer:
+
+- ⭐ Dale una **estrella** a este repositorio
+- 🐦 Comparte en [Twitter](https://twitter.com/intent/tweet?text=Gestiona%20tu%20cartera%20de%20inversiones%20gratis%20con%20Carterapro&url=https://carterapro.streamlit.app)
+- 💬 Comparte en [WhatsApp](https://wa.me/?text=Mira%20este%20gestor%20de%20cartera%20gratis%20https://carterapro.streamlit.app)
+- 📢 Publica en [Reddit r/SpainFIRE](https://reddit.com/r/SpainFIRE), [r/inversiones](https://reddit.com/r/inversiones), [r/eupersonalfinance](https://reddit.com/r/eupersonalfinance)
+- 🗣️ Recomiéndalo en foros de [Rankia](https://www.rankia.com/foros), [Bogleheads](https://www.bogleheads.org/forum/) o [Finect](https://www.finect.com/)
+
+## 📄 Licencia
+
+MIT — Úsalo, modifícalo, compártelo libremente.
