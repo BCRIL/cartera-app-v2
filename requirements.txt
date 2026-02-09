@@ -4,5 +4,6 @@ yfinance
 yahooquery
 supabase
 plotly
+matplotlib
 numpy
 duckduckgo_search
